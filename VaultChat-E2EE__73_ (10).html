@@ -1,0 +1,4153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- apple-mobile-web-app removed: causes touch/fixed issues in Safari on iPad -->
+<title>VaultChat — E2EE</title>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap');
+:root {
+  --black:#03060a;--deep:#060d14;--dark:#0a1520;--panel:#0e1d2e;
+  --raised:#132334;--border:#1a3050;--border2:#234060;--dim:#2a4a6a;
+  --muted:#4a7090;--sub:#6a90a8;--text:#c8dce8;--bright:#e8f4ff;
+  --green:#00e8a0;--gdim:#00a870;--gglow:rgba(0,232,160,0.13);
+  --red:#ff4466;--amber:#ffaa00;--blue:#4488ff;
+  --r:12px;--rs:7px;
+  --mono:'IBM Plex Mono',monospace;--dis:'Syne',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;height:-webkit-fill-available;background:var(--black);color:var(--text);font-family:var(--mono);font-size:13px;overflow:hidden}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* IDENTITY */
+#id-screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--black);z-index:1000;padding:20px}
+.id-card{width:100%;max-width:480px;background:var(--deep);border:1px solid var(--border);border-radius:20px;padding:40px;position:relative;overflow-y:auto;overflow-x:hidden;max-height:calc(100vh - 40px);-webkit-overflow-scrolling:touch;z-index:1}
+.id-card::before{content:'';position:absolute;top:-60px;right:-60px;width:200px;height:200px;background:radial-gradient(circle,var(--gglow),transparent 70%);pointer-events:none;z-index:-1}
+.id-logo{display:flex;align-items:center;gap:12px;margin-bottom:34px}
+.id-logo-icon{width:42px;height:42px;background:linear-gradient(135deg,var(--green),#00a8d4);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.id-logo-name{font-family:var(--dis);font-size:22px;font-weight:800;color:var(--bright)}
+.id-badge{font-size:9px;font-weight:600;color:var(--green);background:rgba(0,232,160,0.1);border:1px solid rgba(0,232,160,0.3);padding:2px 7px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;margin-left:4px}
+.id-title{font-family:var(--dis);font-size:24px;font-weight:700;color:var(--bright);margin-bottom:7px}
+.id-sub{font-size:11px;color:var(--sub);line-height:1.6;margin-bottom:26px}
+.flabel{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:6px}
+.finput{width:100%;background:var(--panel);border:1px solid var(--border);border-radius:var(--rs);color:var(--bright);font-family:var(--mono);font-size:14px;padding:11px 15px;outline:none;transition:border-color .2s;margin-bottom:17px}
+.finput:focus{border-color:var(--gdim);box-shadow:0 0 0 3px var(--gglow)}
+.finput::placeholder{color:var(--dim)}
+.cnote{display:flex;gap:10px;background:rgba(0,232,160,0.04);border:1px solid rgba(0,232,160,0.14);border-radius:var(--rs);padding:12px 14px;margin-bottom:22px;font-size:11px;color:var(--sub);line-height:1.5}
+.cnote em{color:var(--green);font-style:normal;font-weight:600}
+.btn-go{width:100%;background:var(--green);color:var(--black);border:none;border-radius:var(--rs);font-family:var(--dis);font-size:14px;font-weight:700;padding:14px;cursor:pointer;transition:all .2s}
+.btn-go:hover{background:#20ffb8;transform:translateY(-1px);box-shadow:0 8px 24px rgba(0,232,160,.3)}
+.btn-go:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.spin-row{display:flex;align-items:center;gap:8px;justify-content:center;font-size:11px;color:var(--green);margin-top:13px;min-height:20px}
+.spinner{width:12px;height:12px;border:2px solid rgba(0,232,160,.3);border-top-color:var(--green);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* APP */
+#app{display:none;width:100vw;height:100vh;height:100dvh;position:fixed;inset:0}
+#app.visible{display:flex}
+
+/* SIDEBAR */
+.sb{width:310px;min-width:310px;height:100%;background:var(--deep);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.sb-hdr{padding:16px 14px 13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px}
+.sb-logo{font-family:var(--dis);font-size:17px;font-weight:800;color:var(--bright);flex:1}
+.sb-logo span{color:var(--green)}
+.ibt{width:32px;height:32px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--sub);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;transition:all .15s;flex-shrink:0}
+.ibt:hover{background:var(--panel);color:var(--text);border-color:var(--border2)}
+.me-bar{margin:11px 11px 0;background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;display:flex;align-items:center;gap:10px}
+.av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--dis);font-size:13px;font-weight:700;flex-shrink:0}
+.av-me{background:linear-gradient(135deg,#00e8a0,#00a8d4);color:var(--black)}
+.me-info{flex:1;min-width:0}
+.me-name{font-family:var(--dis);font-size:13px;font-weight:600;color:var(--bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.me-fp{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.odot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 5px var(--green);flex-shrink:0}
+.cpk-btn{margin:8px 11px 0;width:calc(100% - 22px);background:rgba(0,232,160,0.06);border:1px dashed rgba(0,232,160,0.3);border-radius:8px;color:var(--green);font-family:var(--mono);font-size:11px;padding:7px;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px}
+.cpk-btn:hover{background:rgba(0,232,160,0.12);border-color:var(--gdim)}
+.sb-search{padding:9px 11px 7px}
+.s-inp{width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:var(--mono);font-size:11px;padding:7px 9px 7px 28px;outline:none;transition:border-color .2s;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%234a7090' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:8px center}
+.s-inp:focus{border-color:var(--gdim)}
+.s-inp::placeholder{color:var(--dim)}
+.slbl{padding:0 13px 5px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);display:flex;align-items:center;justify-content:space-between}
+.clist{flex:1;overflow-y:auto;padding:0 5px;-webkit-overflow-scrolling:touch}
+.ci{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;cursor:pointer;transition:background .15s;position:relative;margin-bottom:2px;-webkit-tap-highlight-color:rgba(0,232,160,.15);user-select:none;-webkit-user-select:none}
+.ci:hover{background:var(--panel)}
+.ci.active{background:var(--raised)}
+.ci.active::before{content:'';position:absolute;left:0;top:22%;bottom:22%;width:3px;background:var(--green);border-radius:0 3px 3px 0}
+.ci-info{flex:1;min-width:0}
+.ci-name{font-family:var(--dis);font-size:13px;font-weight:600;color:var(--bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ci-prev{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.ci-meta{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0}
+.ci-time{font-size:10px;color:var(--dim)}
+.unread{background:var(--green);color:var(--black);font-size:10px;font-weight:700;min-width:17px;height:17px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+.add-btn{margin:9px 11px 11px;width:calc(100% - 22px);background:transparent;border:1px dashed var(--border2);border-radius:9px;color:var(--muted);font-family:var(--mono);font-size:11px;padding:8px;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px}
+.add-btn:hover{border-color:var(--gdim);color:var(--green);background:var(--gglow)}
+
+/* CHAT */
+.chat-area{flex:1;display:flex;flex-direction:column;background:var(--dark);position:relative;overflow:hidden}
+.chat-area::before{content:'';position:absolute;inset:0;background-image:radial-gradient(circle,var(--border) 1px,transparent 1px);background-size:28px 28px;opacity:.22;pointer-events:none}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;color:var(--dim);position:relative;z-index:1}
+.ei{font-size:44px;opacity:.3}
+.et{font-family:var(--dis);font-size:17px;font-weight:700;color:var(--sub)}
+.es{font-size:11px;color:var(--muted);text-align:center;max-width:260px;line-height:1.6}
+#chat-panel{flex:1;display:none;flex-direction:column;overflow:hidden;position:relative;z-index:1}
+
+.chdr{height:57px;background:var(--deep);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 17px;gap:12px;flex-shrink:0}
+.chdr-info{flex:1}
+.chdr-name{font-family:var(--dis);font-size:14px;font-weight:700;color:var(--bright)}
+.chdr-st{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-top:1px}
+.e2pill{display:inline-flex;align-items:center;gap:3px;background:rgba(0,232,160,0.08);border:1px solid rgba(0,232,160,0.2);color:var(--green);font-size:9px;font-weight:600;letter-spacing:.5px;padding:2px 7px;border-radius:20px}
+.hact{display:flex;gap:5px}
+.abt{width:33px;height:33px;border-radius:8px;background:transparent;border:1px solid var(--border);color:var(--sub);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;transition:all .15s}
+.abt:hover{background:var(--panel);border-color:var(--border2);color:var(--text)}
+.abt.c:hover{background:rgba(0,232,160,0.1);color:var(--green);border-color:var(--gdim)}
+.abt.v:hover{background:rgba(68,136,255,0.1);color:var(--blue);border-color:rgba(68,136,255,.4)}
+.abt.k:hover{background:rgba(255,170,0,0.1);color:var(--amber);border-color:rgba(255,170,0,.4)}
+.abt.g:hover{background:rgba(255,100,68,0.1);color:#ff6644;border-color:rgba(255,100,68,.4)}
+
+.msgs{flex:1;overflow-y:auto;padding:17px;display:flex;flex-direction:column;gap:3px;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+.mg{display:flex;flex-direction:column;max-width:70%}
+.mg.mine{align-self:flex-end;align-items:flex-end}
+.mg.theirs{align-self:flex-start;align-items:flex-start}
+.ms-name{font-size:10px;font-weight:600;color:var(--green);margin-bottom:3px;padding-left:10px}
+.bub{padding:8px 13px;border-radius:13px;font-size:13px;line-height:1.5;color:var(--bright);word-break:break-word;animation:mIn .17s ease}
+@keyframes mIn{from{opacity:0;transform:translateY(5px) scale(.97)}to{opacity:1;transform:none}}
+.theirs .bub{background:var(--panel);border:1px solid var(--border);border-bottom-left-radius:4px}
+.mine .bub{background:var(--raised);border:1px solid var(--border2);border-bottom-right-radius:4px}
+.mmeta{display:flex;align-items:center;gap:5px;margin-top:2px;padding:0 4px;font-size:10px;color:var(--dim)}
+.mlk{color:var(--gdim);font-size:9px}
+.sysmsg{align-self:center;background:rgba(0,232,160,0.04);border:1px solid rgba(0,232,160,0.1);border-radius:20px;padding:4px 13px;font-size:10px;color:var(--gdim);margin:5px 0;display:flex;align-items:center;gap:5px}
+
+.ibar{padding:11px 17px;background:var(--deep);border-top:1px solid var(--border);display:flex;align-items:flex-end;gap:8px;flex-shrink:0}
+.minp{flex:1;min-height:39px;max-height:108px;background:var(--panel);border:1px solid var(--border);border-radius:10px;color:var(--bright);font-family:var(--mono);font-size:13px;padding:9px 13px;outline:none;resize:none;line-height:1.5;transition:border-color .2s;overflow-y:auto}
+.minp:focus{border-color:var(--gdim);box-shadow:0 0 0 3px rgba(0,232,160,.07)}
+.minp::placeholder{color:var(--dim)}
+.sbtn{width:39px;height:39px;border-radius:10px;background:var(--green);border:none;color:var(--black);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;transition:all .15s}
+.sbtn:hover{background:#20ffb8;transform:scale(1.06);box-shadow:0 4px 14px rgba(0,232,160,.3)}
+.sbtn:active{transform:scale(.97)}
+.sbtn:disabled{opacity:.35;cursor:not-allowed;transform:none}
+
+/* KEY PANEL */
+.kpanel{position:absolute;top:57px;right:0;bottom:0;width:285px;background:var(--deep);border-left:1px solid var(--border);z-index:20;display:none;flex-direction:column;padding:17px;overflow-y:auto;animation:kpIn .2s ease}
+@keyframes kpIn{from{transform:translateX(285px)}to{transform:none}}
+.kpanel.open{display:flex}
+.kp-t{font-family:var(--dis);font-size:14px;font-weight:700;color:var(--bright);margin-bottom:4px}
+.kp-s{font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.5}
+.kp-sec{margin-bottom:14px}
+.kp-l{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:5px}
+.kv{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:10px;color:var(--green);font-family:var(--mono);word-break:break-all;line-height:1.6}
+
+/* CALL OVERLAY */
+#call-ov{position:fixed;inset:0;z-index:500;display:none;flex-direction:column;background:#020508}
+#call-ov.active{display:flex}
+.call-hdr{height:57px;background:rgba(0,0,0,.65);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;padding:0 22px;gap:13px;flex-shrink:0}
+.call-ttl{font-family:var(--dis);font-size:14px;font-weight:700;color:var(--bright);flex:1}
+.call-pill{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--green);background:rgba(0,232,160,0.08);border:1px solid rgba(0,232,160,0.2);padding:4px 10px;border-radius:20px}
+.call-tmr{font-family:var(--mono);font-size:12px;color:var(--sub)}
+.call-vids{flex:1;position:relative;overflow:hidden}
+#rvid{width:100%;height:100%;object-fit:cover;background:var(--dark);transition:opacity .2s}
+#lvid{position:absolute;bottom:18px;right:18px;width:170px;height:120px;object-fit:cover;border-radius:11px;border:2px solid rgba(255,255,255,.1);background:var(--panel);z-index:5}
+.cwait{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;background:var(--deep)}
+.wav{width:88px;height:88px;border-radius:50%;background:linear-gradient(135deg,#00e8a0,#00a8d4);display:flex;align-items:center;justify-content:center;font-family:var(--dis);font-size:34px;font-weight:700;color:var(--black);animation:pav 2s ease-in-out infinite}
+@keyframes pav{0%,100%{box-shadow:0 0 0 0 rgba(0,232,160,.4)}50%{box-shadow:0 0 0 18px rgba(0,232,160,0)}}
+.wname{font-family:var(--dis);font-size:20px;font-weight:700;color:var(--bright)}
+.wst{font-size:12px;color:var(--muted)}
+.abars{display:flex;align-items:center;gap:3px;height:20px}
+.ab{width:3px;background:var(--green);border-radius:2px;animation:aba .8s ease-in-out infinite}
+.ab:nth-child(2){animation-delay:.1s}.ab:nth-child(3){animation-delay:.2s}.ab:nth-child(4){animation-delay:.3s}.ab:nth-child(5){animation-delay:.15s}
+@keyframes aba{0%,100%{height:4px}50%{height:18px}}
+.cctrl{height:76px;background:rgba(0,0,0,.72);backdrop-filter:blur(20px);border-top:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;gap:14px;flex-shrink:0}
+.cbtn{width:50px;height:50px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:19px;transition:all .2s}
+.cbtn.n{background:rgba(255,255,255,.1);color:var(--text);border:1px solid rgba(255,255,255,.14)}
+.cbtn.n:hover{background:rgba(255,255,255,.18)}
+.cbtn.n.off{background:rgba(255,60,60,.18);color:var(--red);border-color:rgba(255,60,60,.3)}
+.cbtn.end{background:var(--red);color:#fff;width:58px;height:58px;font-size:21px}
+.cbtn.end:hover{background:#ff2244;transform:scale(1.08);box-shadow:0 8px 22px rgba(255,50,80,.4)}
+.cbtn.n.screen-on{background:rgba(68,136,255,.25);color:var(--blue);border-color:rgba(68,136,255,.6);box-shadow:0 0 12px rgba(68,136,255,.3)}
+.screen-banner{position:absolute;top:13px;left:50%;transform:translateX(-50%);background:rgba(68,136,255,.18);border:1px solid rgba(68,136,255,.45);color:var(--blue);font-size:10px;font-weight:600;letter-spacing:.8px;padding:4px 13px;border-radius:20px;z-index:10;display:none;align-items:center;gap:6px;white-space:nowrap}
+.screen-banner.on{display:flex}
+.sdot{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:blink 1.2s ease infinite}
+/* Screen share options popup */
+#screen-opts{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:var(--deep);border:1px solid var(--border2);border-radius:13px;padding:16px;z-index:600;display:none;flex-direction:column;gap:10px;width:260px;box-shadow:0 12px 40px rgba(0,0,0,.7);animation:mIn2 .18s ease}
+#screen-opts.show{display:flex}
+.sopt-title{font-family:var(--dis);font-size:12px;font-weight:700;color:var(--bright);margin-bottom:2px}
+.sopt-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.sopt-lbl{font-size:11px;color:var(--text)}
+.sopt-sub{font-size:10px;color:var(--muted);margin-top:1px}
+.sopt-btn{width:100%;background:var(--blue);color:#fff;border:none;border-radius:8px;font-family:var(--dis);font-weight:700;font-size:13px;padding:11px;cursor:pointer;transition:all .15s;margin-top:4px}
+.sopt-btn:hover{opacity:.85;transform:translateY(-1px)}
+.sopt-cancel{width:100%;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-family:var(--mono);font-size:12px;padding:9px;cursor:pointer;transition:all .15s}
+.sopt-cancel:hover{color:var(--text);border-color:var(--border2)}
+
+/* INCOMING */
+#inc-toast{position:fixed;top:18px;right:18px;width:310px;background:var(--deep);border:1px solid var(--border);border-radius:15px;padding:18px;z-index:600;display:none;box-shadow:0 18px 55px rgba(0,0,0,.6);animation:slIn .3s ease}
+@keyframes slIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+#inc-toast.active{display:block}
+.inc-lbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;color:var(--green);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.rdot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:blink 1s ease infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.inc-caller{display:flex;align-items:center;gap:10px;margin-bottom:13px}
+.inc-info{flex:1}
+.inc-name{font-family:var(--dis);font-size:15px;font-weight:700;color:var(--bright)}
+.inc-type{font-size:11px;color:var(--muted)}
+.inc-act{display:flex;gap:8px}
+.btn-acc{flex:1;background:var(--green);color:var(--black);border:none;border-radius:8px;font-family:var(--dis);font-weight:700;font-size:13px;padding:10px;cursor:pointer;transition:all .2s}
+.btn-acc:hover{background:#20ffb8}
+.btn-dec{flex:1;background:rgba(255,60,80,.12);color:var(--red);border:1px solid rgba(255,60,80,.28);border-radius:8px;font-family:var(--dis);font-weight:700;font-size:13px;padding:10px;cursor:pointer;transition:all .2s}
+.btn-dec:hover{background:rgba(255,60,80,.22)}
+
+/* MODALS */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(8px);z-index:400;display:none;align-items:center;justify-content:center}
+.ov.active{display:flex}
+.modal{background:var(--deep);border:1px solid var(--border);border-radius:17px;padding:28px;animation:mIn2 .22s ease;position:relative}
+@keyframes mIn2{from{transform:scale(.95) translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.mt{font-family:var(--dis);font-size:17px;font-weight:700;color:var(--bright);margin-bottom:5px}
+.ms{font-size:11px;color:var(--sub);margin-bottom:20px;line-height:1.55}
+.ml{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:5px}
+.mi{width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--bright);font-family:var(--mono);font-size:12px;padding:9px 11px;outline:none;margin-bottom:12px;transition:border-color .2s}
+.mi:focus{border-color:var(--gdim);box-shadow:0 0 0 3px var(--gglow)}
+.mi::placeholder{color:var(--dim)}
+.mta{width:100%;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:var(--bright);font-family:var(--mono);font-size:11px;padding:9px 11px;outline:none;margin-bottom:12px;resize:vertical;min-height:78px;transition:border-color .2s;line-height:1.5}
+.mta:focus{border-color:var(--gdim);box-shadow:0 0 0 3px var(--gglow)}
+.mta::placeholder{color:var(--dim)}
+.mact{display:flex;gap:8px;margin-top:6px}
+.mbp{flex:1;background:var(--green);color:var(--black);border:none;border-radius:7px;font-family:var(--dis);font-weight:700;font-size:13px;padding:11px;cursor:pointer;transition:all .15s}
+.mbp:hover{background:#20ffb8}
+.mbs{flex:1;background:transparent;color:var(--sub);border:1px solid var(--border);border-radius:7px;font-family:var(--dis);font-weight:600;font-size:13px;padding:11px;cursor:pointer;transition:all .15s}
+.mbs:hover{background:var(--panel);color:var(--text)}
+
+/* SETTINGS */
+.ss{border:1px solid var(--border);border-radius:var(--r);padding:13px;margin-bottom:11px;background:var(--panel)}
+.st{font-family:var(--dis);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--sub);margin-bottom:11px}
+.sr{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)}
+.sr:last-child{border-bottom:none;padding-bottom:0}
+.sl{font-size:12px;color:var(--text);flex-shrink:0}
+.sv{font-size:11px;color:var(--sub);text-align:right}
+.badge{background:rgba(0,232,160,0.09);border:1px solid rgba(0,232,160,0.22);color:var(--green);font-size:9px;font-weight:600;padding:2px 7px;border-radius:20px;white-space:nowrap;font-family:var(--mono)}
+.sb2{background:var(--raised);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;padding:4px 11px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.sb2:hover{border-color:var(--gdim);color:var(--green)}
+.sb2d{background:rgba(255,50,80,.07);border:1px solid rgba(255,50,80,.22);border-radius:6px;color:var(--red);font-family:var(--mono);font-size:11px;padding:4px 11px;cursor:pointer;transition:all .15s}
+.sb2d:hover{background:rgba(255,50,80,.16)}
+.tgl{position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0}
+.tgl input{opacity:0;width:0;height:0}
+.ttr{position:absolute;inset:0;background:var(--border2);border-radius:22px;cursor:pointer;transition:background .2s}
+.ttr::before{content:'';position:absolute;width:16px;height:16px;left:3px;top:3px;background:var(--sub);border-radius:50%;transition:transform .2s,background .2s}
+.tgl input:checked+.ttr{background:var(--gdim)}
+.tgl input:checked+.ttr::before{transform:translateX(18px);background:var(--bright)}
+.sw{width:24px;height:24px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:all .15s}
+.sw:hover{transform:scale(1.15)}
+.sw.active{border-color:var(--bright);box-shadow:0 0 0 2px rgba(255,255,255,.18)}
+
+/* SCRAMBLER */
+.scr-out{width:100%;background:var(--raised);border:1px solid var(--border2);border-radius:7px;padding:9px 11px;font-family:var(--mono);font-size:11px;color:var(--green);word-break:break-all;line-height:1.5;min-height:54px;margin-bottom:9px;cursor:text;-webkit-user-select:text;user-select:text;resize:none;outline:none;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,232,160,.15)}
+.scr-acts{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px}
+.scrb{background:var(--panel);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;padding:5px 11px;cursor:pointer;transition:all .15s}
+.scrb:hover{border-color:var(--gdim);color:var(--green)}
+
+/* FILE MESSAGES */
+.file-bubble{display:flex;align-items:center;gap:11px;padding:10px 13px;border-radius:11px;min-width:200px;max-width:320px;cursor:default}
+.mine .file-bubble{background:var(--raised);border:1px solid var(--border2)}
+.theirs .file-bubble{background:var(--panel);border:1px solid var(--border)}
+.file-icon{font-size:26px;flex-shrink:0;line-height:1}
+.file-info{flex:1;min-width:0}
+.file-name{font-size:12px;font-weight:600;color:var(--bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--dis)}
+.file-size{font-size:10px;color:var(--muted);margin-top:2px}
+.file-dl{background:var(--green);color:var(--black);border:none;border-radius:6px;font-family:var(--dis);font-weight:700;font-size:11px;padding:5px 11px;cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.file-dl:hover{background:#20ffb8}
+.file-dl:disabled{opacity:.45;cursor:not-allowed}
+.file-progress{width:100%;height:3px;background:var(--border);border-radius:2px;margin-top:5px;overflow:hidden;display:none}
+.file-progress-bar{height:100%;background:var(--green);border-radius:2px;transition:width .2s;width:0%}
+/* MEDIA BUBBLES (photos & videos) */
+.media-bubble{position:relative;border-radius:13px;overflow:hidden;max-width:280px;cursor:pointer;background:var(--panel)}
+.media-bubble img{display:block;width:100%;max-width:280px;max-height:340px;object-fit:cover;border-radius:13px}
+.media-bubble video{display:block;width:100%;max-width:280px;max-height:280px;border-radius:13px;background:#000}
+.media-overlay{position:absolute;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center;border-radius:13px;opacity:0;transition:opacity .18s}
+.media-bubble:hover .media-overlay{opacity:1}
+.media-play{font-size:38px;filter:drop-shadow(0 2px 8px rgba(0,0,0,.6))}
+.media-recv{display:flex;align-items:center;justify-content:center;width:200px;height:140px;border-radius:13px;background:var(--panel);border:1px solid var(--border);flex-direction:column;gap:8px}
+.media-recv-icon{font-size:32px}
+.media-recv-lbl{font-size:11px;color:var(--muted)}
+.media-lock{position:absolute;bottom:7px;right:9px;font-size:10px;color:rgba(255,255,255,.75);background:rgba(0,0,0,.45);padding:2px 6px;border-radius:8px;backdrop-filter:blur(4px)}
+/* Lightbox */
+#lightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9000;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;cursor:zoom-out}
+#lightbox.on{display:flex}
+#lightbox img,#lightbox video{max-width:92vw;max-height:82vh;border-radius:10px;object-fit:contain;box-shadow:0 20px 60px rgba(0,0,0,.8)}
+#lb-close{position:absolute;top:16px;right:20px;background:rgba(255,255,255,.1);border:none;color:#fff;font-size:22px;width:40px;height:40px;border-radius:50%;cursor:pointer;transition:background .15s}
+#lb-close:hover{background:rgba(255,255,255,.22)}
+#lb-dl{position:absolute;bottom:20px;right:20px;background:var(--green);color:var(--black);border:none;border-radius:8px;font-family:var(--dis);font-weight:700;font-size:12px;padding:8px 16px;cursor:pointer}
+/* Media button in input bar */
+.mbtn{width:39px;height:39px;border-radius:10px;background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;transition:all .15s}
+.mbtn:hover{background:var(--panel);color:#ff88cc;border-color:rgba(255,136,204,.4)}
+#media-input{display:none}
+
+/* VOICE NOTE RECORDER */
+.vbtn{width:39px;height:39px;border-radius:10px;background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0;transition:all .18s;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+.vbtn:hover{background:rgba(255,68,100,.08);color:var(--red);border-color:rgba(255,68,100,.3)}
+.vbtn.recording{background:rgba(255,68,100,.15);color:var(--red);border-color:var(--red);animation:vbPulse .8s ease-in-out infinite}
+@keyframes vbPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,68,100,.4)}50%{box-shadow:0 0 0 6px rgba(255,68,100,0)}}
+
+/* Voice recorder overlay (shown while recording) */
+#vrec-bar{position:absolute;bottom:0;left:0;right:0;height:64px;background:var(--deep);border-top:1px solid var(--border);display:none;align-items:center;gap:12px;padding:0 14px;z-index:10;animation:vrIn .18s ease}
+@keyframes vrIn{from{transform:translateY(100%)}to{transform:none}}
+#vrec-bar.on{display:flex}
+#vrec-timer{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--red);min-width:44px}
+#vrec-wave{flex:1;height:36px}
+#vrec-cancel{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:12px;padding:6px 12px;cursor:pointer;font-family:var(--mono);transition:all .15s;flex-shrink:0}
+#vrec-cancel:hover{border-color:var(--red);color:var(--red)}
+#vrec-send{background:var(--green);border:none;border-radius:8px;color:var(--black);font-family:var(--dis);font-weight:700;font-size:12px;padding:6px 14px;cursor:pointer;transition:all .15s;flex-shrink:0}
+#vrec-send:hover{background:#20ffb8}
+
+/* Voice note preview (before sending) */
+#vpreview-bar{position:absolute;bottom:0;left:0;right:0;background:var(--deep);border-top:1px solid var(--border);display:none;flex-direction:column;padding:10px 14px 10px;z-index:10;gap:8px;animation:vrIn .18s ease}
+#vpreview-bar.on{display:flex}
+.vpreview-hdr{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:1px}
+.vpreview-row{display:flex;align-items:center;gap:10px}
+#vpreview-play{width:36px;height:36px;border-radius:50%;background:var(--green);border:none;color:var(--black);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
+#vpreview-play:hover{background:#20ffb8;transform:scale(1.08)}
+#vpreview-wave{flex:1;height:32px;cursor:pointer}
+#vpreview-dur{font-family:var(--mono);font-size:11px;color:var(--muted);min-width:36px;text-align:right}
+.vpreview-acts{display:flex;gap:8px}
+.vpreview-acts button{flex:1;border-radius:8px;font-family:var(--dis);font-weight:700;font-size:13px;padding:10px;cursor:pointer;transition:all .15s;border:none}
+#vp-discard{background:transparent;border:1px solid var(--border) !important;color:var(--muted)}
+#vp-discard:hover{border-color:var(--red) !important;color:var(--red)}
+#vp-send{background:var(--green);color:var(--black)}
+#vp-send:hover{background:#20ffb8}
+
+/* Voice note player bubble */
+.vn-bubble{display:flex;align-items:center;gap:10px;padding:9px 13px;border-radius:14px;min-width:220px;max-width:300px}
+.mine .vn-bubble{background:var(--raised);border:1px solid var(--border2)}
+.theirs .vn-bubble{background:var(--panel);border:1px solid var(--border)}
+.vn-play{width:36px;height:36px;border-radius:50%;background:var(--green);border:none;color:var(--black);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
+.vn-play:hover{background:#20ffb8;transform:scale(1.06)}
+.vn-play:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.vn-right{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.vn-canvas{width:100%;height:28px;cursor:pointer;border-radius:4px}
+.vn-meta{display:flex;align-items:center;justify-content:space-between}
+.vn-dur{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.vn-lock{font-size:10px;color:var(--muted)}
+.vn-recv{display:flex;align-items:center;gap:10px;padding:9px 13px;border-radius:14px;min-width:220px;background:var(--panel);border:1px solid var(--border)}
+.vn-recv-lbl{font-size:11px;color:var(--muted)}
+
+/* Mobile recording bar safe area */
+@media(max-width:700px){
+  #vrec-bar,#vpreview-bar{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+}
+
+/* File attach button in input bar */
+.fbtn{width:39px;height:39px;border-radius:10px;background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;transition:all .15s}
+.fbtn:hover{background:var(--panel);color:var(--green);border-color:var(--gdim)}
+#file-input{display:none}
+
+/* GROUP CHATS */
+.ci.group .av{background:linear-gradient(135deg,#ff6644,#ffaa00) !important}
+.ci.group .av::after{content:"👥";position:absolute;bottom:-2px;right:-2px;font-size:9px;background:var(--deep);border-radius:50%;width:13px;height:13px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border)}
+.group-pill{display:inline-flex;align-items:center;gap:4px;background:rgba(255,136,0,.1);border:1px solid rgba(255,136,0,.25);color:#ffaa00;font-size:9px;font-weight:700;letter-spacing:.5px;padding:2px 7px;border-radius:10px;text-transform:uppercase}
+.member-tag{display:inline-flex;align-items:center;gap:5px;background:var(--raised);border:1px solid var(--border2);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--text);margin:3px}
+.member-tag .mt-rm{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 0 0 4px;line-height:1}
+.member-tag .mt-rm:hover{color:var(--red)}
+.member-sel{display:flex;flex-wrap:wrap;gap:3px;margin:8px 0;min-height:36px;background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:6px}
+.member-opt{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;transition:background .12s}
+.member-opt:hover{background:var(--panel)}
+.member-opt input[type=checkbox]{accent-color:var(--green);width:15px;height:15px;cursor:pointer}
+.member-opt-name{font-size:13px;color:var(--text)}
+.member-opt-status{font-size:10px;color:var(--muted)}
+.member-opt.online .member-opt-name{color:var(--bright)}
+.gmember-list{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0}
+.gmember-chip{background:var(--raised);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--text);display:flex;align-items:center;gap:5px}
+.gmember-chip.online{border-color:rgba(0,232,160,.3);color:var(--green)}
+.add-member-btn{background:none;border:1px dashed var(--border2);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--muted);cursor:pointer;transition:all .15s}
+.add-member-btn:hover{border-color:var(--green);color:var(--green)}
+
+/* KEY SHARE MODAL */
+.key-display-wrap{position:relative;margin-bottom:14px}
+.key-display{width:100%;background:var(--raised);border:1px solid var(--border2);border-radius:8px;color:var(--green);font-family:var(--mono);font-size:11px;padding:10px 12px;line-height:1.7;min-height:72px;resize:none;outline:none;-webkit-user-select:text;user-select:text;cursor:text;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,232,160,.15)}
+.key-tap-hint{font-size:10px;color:var(--muted);text-align:center;margin-bottom:10px;line-height:1.5}
+.key-act-row{display:flex;gap:8px;margin-bottom:4px;flex-wrap:wrap}
+.key-act-row .mbp{font-size:12px;padding:11px;flex:1;min-width:80px}
+.key-act-row .mbs{font-size:12px;padding:11px;flex:0 0 auto}
+.key-share-native{width:100%;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:var(--dis);font-weight:700;font-size:13px;padding:12px;cursor:pointer;transition:all .15s;margin-bottom:8px;display:none}
+.key-share-native:hover{opacity:.85}
+
+/* SIGNAL STATUS BAR */
+.sig-bar{margin:6px 11px 0;padding:5px 10px;border-radius:7px;font-size:10px;display:flex;align-items:center;gap:7px;transition:all .3s}
+.sig-bar.connecting{background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.25);color:var(--amber)}
+.sig-bar.connected{background:rgba(0,232,160,0.06);border:1px solid rgba(0,232,160,0.2);color:var(--green)}
+.sig-bar.error{background:rgba(255,60,80,0.08);border:1px solid rgba(255,60,80,0.25);color:var(--red)}
+.sig-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sig-bar.connecting .sig-dot{background:var(--amber);animation:blink 1s ease infinite}
+.sig-bar.connected .sig-dot{background:var(--green);box-shadow:0 0 5px var(--green)}
+.sig-bar.error .sig-dot{background:var(--red)}
+
+/* TOAST */
+.ta{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:700;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+.toast{background:var(--raised);border:1px solid var(--border2);border-radius:28px;padding:7px 15px;font-size:12px;color:var(--text);display:flex;align-items:center;gap:7px;box-shadow:0 7px 28px rgba(0,0,0,.5);animation:tI .22s ease,tO .28s ease 2.7s forwards;pointer-events:none}
+@keyframes tI{from{opacity:0;transform:translateY(12px) scale(.95)}to{opacity:1;transform:none}}
+@keyframes tO{from{opacity:1}to{opacity:0;transform:translateY(-6px)}}
+
+/* ================================================================
+   MOBILE RESPONSIVE — full overhaul for small screens
+   Pattern: sidebar-first nav; tap contact → full-screen chat;
+   back button (←) returns to sidebar.
+   ================================================================ */
+@media (max-width: 1100px) {
+
+  /* Safe area for iOS notch / home bar */
+  html, body { height: 100%; height: -webkit-fill-available; }
+
+  /* ── Identity screen ── */
+  #id-screen { padding: 16px; align-items: flex-start; }
+  .id-card { border-radius: 16px; padding: 28px 20px; max-height: none; overflow-y: visible; }
+  .id-logo { margin-bottom: 20px; }
+  .id-title { font-size: 20px; }
+  .id-sub { font-size: 12px; margin-bottom: 18px; }
+  .finput { font-size: 16px; } /* prevent iOS zoom on focus */
+  .btn-go { font-size: 16px; padding: 16px; min-height: 54px; }
+
+  /* ── App shell ── */
+  #app { display: none; flex-direction: row; }
+  #app.visible { display: flex; }
+
+  /* Use dvh so the app shrinks when the keyboard appears */
+  #app.visible {
+    height: 100vh;
+    height: 100dvh;
+    height: -webkit-fill-available;
+  }
+
+  /* Sidebar: full width, fill parent height */
+  .sb {
+    width: 100%; min-width: 0;
+    flex-shrink: 0;
+    /* slide off-screen via transform — keep in normal flow */
+    position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+    z-index: 10;
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+  }
+  .sb.chat-open { transform: translateX(-100%); pointer-events: none; }
+
+  /* Chat area: fill remaining space, column layout */
+  .chat-area {
+    width: 100%;
+    position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+    z-index: 5;
+    transform: translateX(100%);
+    transition: transform .25s cubic-bezier(.4,0,.2,1);
+    /* CRITICAL: allow flex children to shrink so ibar stays visible */
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .chat-area.chat-open { transform: translateX(0); }
+
+  /* chat-panel fills remaining vertical space */
+  #chat-panel {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* msgs scrolls within remaining space */
+  .msgs { flex: 1; min-height: 0; overflow-y: auto; }
+
+  /* ibar always at bottom, never clipped */
+  .ibar {
+    flex-shrink: 0;
+    position: relative; z-index: 2;
+    /* JS will update padding-bottom when keyboard opens */
+  }
+
+  /* Back button: visible only on mobile inside chat header */
+  #back-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 9px;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--sub); cursor: pointer; font-size: 17px; flex-shrink: 0;
+    transition: all .15s;
+  }
+  #back-btn:hover { background: var(--panel); color: var(--green); }
+
+  /* ── Sidebar tweaks ── */
+  .sb-hdr { padding: 14px 13px 12px;
+    padding-top: calc(14px + env(safe-area-inset-top)); }
+  .me-bar { margin: 10px 10px 0; }
+  .clist { padding: 0 4px; }
+  .ci { padding: 11px 10px; }
+  .ci-name { font-size: 14px; }
+  .add-btn { margin: 8px 10px 6px; font-size: 12px; padding: 10px; }
+
+  /* ── Chat header ── */
+  .chdr {
+    height: auto; min-height: 57px; padding: 10px 12px;
+    padding-top: calc(10px + env(safe-area-inset-top));
+    flex-wrap: nowrap; gap: 9px;
+  }
+  .chdr-name { font-size: 14px; }
+  .chdr-st { font-size: 10px; }
+  .hact { gap: 5px; }
+  .abt { width: 34px; height: 34px; font-size: 15px; }
+  .e2pill { display: none; } /* too cramped on mobile */
+
+  /* ── Messages ── */
+  .msgs { padding: 12px 10px; }
+  .mg { max-width: 82%; }
+  .bub { font-size: 13px; padding: 9px 12px; }
+  .mmeta { font-size: 10px; }
+
+  /* ── Input bar ── */
+  .ibar {
+    padding: 9px 10px;
+    padding-bottom: calc(9px + env(safe-area-inset-bottom));
+  }
+  .minp { font-size: 16px; min-height: 42px; padding: 10px 12px; } /* 16px prevents iOS zoom */
+  .sbtn { width: 42px; height: 42px; font-size: 18px; }
+  .fbtn, .mbtn { width: 42px; height: 42px; font-size: 18px; }
+
+  /* ── Modals: full-screen sheet from bottom on mobile ── */
+  .ov { align-items: flex-end; }
+  .modal {
+    width: 100% !important; max-width: 100% !important;
+    border-radius: 22px 22px 0 0; padding: 24px 20px;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    max-height: 88vh; overflow-y: auto;
+    animation: sheetUp .3s cubic-bezier(.4,0,.2,1);
+  }
+  @keyframes sheetUp { from { transform: translateY(100%); } to { transform: none; } }
+  .mact { gap: 10px; }
+  .mbp, .mbs { font-size: 14px; padding: 14px; }
+  .mta { font-size: 16px; } /* prevent iOS zoom */
+  .mi { font-size: 16px; }
+  .finput { font-size: 16px; }
+
+  /* ── Key panel: full width overlay ── */
+  .kpanel { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+
+  /* ── Incoming call toast ── */
+  #inc-toast {
+    top: auto; bottom: 0; right: 0; left: 0; width: 100%;
+    border-radius: 22px 22px 0 0; border-bottom: none;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+    animation: sheetUp .3s ease;
+  }
+
+  /* ── Media bubbles: full-width friendly ── */
+  .media-bubble { max-width: 100%; }
+  .media-bubble img { max-width: 100%; }
+  .media-bubble video { max-width: 100%; }
+  .file-bubble { max-width: 100%; min-width: 0; }
+
+  /* ── Settings modal scrolls well on small screens ── */
+  .ss { padding: 12px 10px; }
+
+  /* ── Call overlay: safe area padding ── */
+  .cctrl {
+    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(76px + env(safe-area-inset-bottom));
+  }
+  .call-hdr { padding-top: calc(0px + env(safe-area-inset-top)); }
+  #lvid { width: 110px; height: 80px; bottom: calc(90px + env(safe-area-inset-bottom)); }
+
+  /* ── Sig bar ── */
+  .sig-bar { font-size: 11px; padding: 5px 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- IDENTITY -->
+<div id="id-screen">
+  <div class="id-card">
+    <div class="id-logo">
+      <div class="id-logo-icon">🔐</div>
+      <div><span class="id-logo-name">VaultChat</span><span class="id-badge">E2EE</span></div>
+    </div>
+    <div class="id-title">Create Your Identity</div>
+    <div class="id-sub">A real ECDH P-256 keypair is generated on your device. Your private key never leaves this browser.</div>
+    <div class="flabel">Display Name</div>
+    <input class="finput" id="inp-name" placeholder="Your name…" maxlength="32">
+    <div class="flabel">Username (used for call routing)</div>
+    <input class="finput" id="inp-user" placeholder="e.g. alice" maxlength="24" style="margin-bottom:20px">
+    <div class="cnote">
+      <span>🛡️</span>
+      <span>Open two tabs, create different identities, then each user copies their key and pastes it into the other's <em>Add Contact</em> form. Keys are required — nobody connects automatically.</span>
+    </div>
+    <!-- Crypto / HTTPS error banner — shown by checkCryptoSupport() if needed -->
+    <div id="crypto-err" style="display:none;background:rgba(255,68,100,.09);border:1px solid rgba(255,68,100,.35);border-radius:10px;padding:14px 16px;margin-bottom:16px;font-size:12px;color:var(--red);line-height:1.6"></div>
+
+    <button class="btn-go" id="go-btn" onclick="doCreateIdentity()">🔑 Generate Keys &amp; Enter</button>
+    <div class="spin-row" id="spin-row" style="display:none"><div class="spinner"></div>Generating ECDH P-256 keypair…</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="sb">
+    <div class="sb-hdr">
+      <div class="sb-logo">Vault<span>Chat</span></div>
+      <button class="ibt" title="Key Scrambler" onclick="openSM('scram-modal')">🔀</button>
+      <button class="ibt" title="Add Contact" onclick="openSM('add-modal')">＋</button>
+      <button class="ibt" title="Settings" onclick="openSettings()">⚙</button>
+    </div>
+    <div class="me-bar">
+      <div class="av av-me" id="my-av">?</div>
+      <div class="me-info">
+        <div class="me-name" id="my-name">—</div>
+        <div class="me-fp" id="my-fp">—</div>
+      </div>
+      <div class="odot"></div>
+    </div>
+    <div class="sig-bar connecting" id="sig-bar" style="display:none">
+      <div class="sig-dot"></div>
+      <span id="sig-bar-txt">Connecting to network…</span>
+    </div>
+    <button class="cpk-btn" onclick="openKeyShareModal()">📋 Copy / Share My Public Key</button>
+    <div class="sb-search"><input class="s-inp" placeholder="Search…" oninput="filterC(this.value)"></div>
+    <div class="slbl"><span>Conversations</span><span id="oct" style="color:var(--green);font-size:10px">0 online</span></div>
+    <div class="clist" id="clist"></div>
+    <button class="add-btn" onclick="openSM('add-modal')">＋ Add Contact by Public Key</button>
+    <button class="add-btn" onclick="openGroupModal()" style="background:rgba(255,136,0,.08);border-color:rgba(255,136,0,.25);color:#ffaa00;margin-top:4px">👥 New Group Chat</button>
+  </div>
+
+  <div class="chat-area">
+    <div class="empty" id="chat-empty">
+      <div class="ei">🔒</div>
+      <div class="et">End-to-End Encrypted</div>
+      <div class="es">Copy your public key and share it with a contact. Have them add it, then add theirs. Select a conversation to begin.</div>
+    </div>
+    <div id="chat-panel">
+      <div class="chdr">
+        <button id="back-btn" onclick="mobileBack()" style="display:none" title="Back">←</button>
+        <div class="av" id="ch-av" style="background:linear-gradient(135deg,#4488ff,#8844ee);color:#fff;font-family:var(--dis);font-size:12px;font-weight:700">?</div>
+        <div class="chdr-info">
+          <div class="chdr-name" id="ch-name">—</div>
+          <div class="chdr-st">
+            <span id="ch-dot" style="color:var(--muted)">●</span>
+            <span id="ch-st">Offline</span>
+            <span class="e2pill">🔒 E2EE</span>
+          </div>
+        </div>
+        <div class="hact">
+          <button class="abt c" title="Voice Call" onclick="startCall(false)">📞</button>
+          <button class="abt v" title="Video Call" onclick="startCall(true)">📹</button>
+          <button class="abt g" id="leave-grp-btn" title="Leave Group" onclick="leaveGroup()" style="display:none;color:#ff6644;border-color:rgba(255,100,68,.3)">🚪</button>
+          <button class="abt k" title="Key Info" onclick="toggleKP()">🔑</button>
+        </div>
+        <div class="kpanel" id="kpanel">
+          <div class="kp-t" id="kp-title">Encryption Info</div>
+          <div class="kp-s" id="kp-sub">Verify fingerprints out-of-band.</div>
+          <div class="kp-sec"><div class="kp-l" id="kp-l1">My Fingerprint</div><div class="kv" id="kp-me">—</div></div>
+          <div class="kp-sec"><div class="kp-l" id="kp-l2">Peer Fingerprint</div><div class="kv" id="kp-peer">—</div></div>
+          <div class="kp-sec"><div class="kp-l" id="kp-l3">Session Key (AES-GCM-256)</div><div class="kv" id="kp-sess">—</div></div>
+          <div id="kp-members-sec" style="display:none">
+            <div class="kp-l" style="margin-bottom:6px">Members</div>
+            <div id="kp-members-list" class="gmember-list"></div>
+            <button class="add-member-btn" onclick="openAddMember()" style="margin-top:6px">＋ Add Member</button>
+          </div>
+        </div>
+      </div>
+      <div class="msgs" id="msgs"></div>
+      <div class="ibar" style="position:relative">
+        <input type="file" id="file-input" multiple onchange="handleFileSelect(this)">
+        <input type="file" id="media-input" multiple accept="image/*,video/*" onchange="handleMediaSelect(this)">
+        <button class="mbtn" title="Send photo or video" onclick="document.getElementById('media-input').click()">📷</button>
+        <button class="fbtn" title="Send encrypted file" onclick="document.getElementById('file-input').click()">📎</button>
+        <button class="vbtn" id="vbtn" title="Hold to record voice note" onclick="toggleVoiceRec()">🎙</button>
+        <textarea class="minp" id="minp" placeholder="Type an encrypted message… (Enter to send)" rows="1"
+          onkeydown="handleKey(event)" oninput="autoR(this)"></textarea>
+        <button class="sbtn" id="sbtn" onclick="sendMsg()">➤</button>
+
+        <!-- Voice recording bar (shown while recording) -->
+        <div id="vrec-bar">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--red);animation:vbPulse .8s ease-in-out infinite;flex-shrink:0"></div>
+          <div id="vrec-timer">0:00</div>
+          <canvas id="vrec-wave"></canvas>
+          <button id="vrec-cancel" onclick="cancelVoiceRec()">✕ Cancel</button>
+          <button id="vrec-send" onclick="stopVoiceRec()">■ Done</button>
+        </div>
+
+        <!-- Voice preview bar (shown after recording, before sending) -->
+        <div id="vpreview-bar">
+          <div class="vpreview-hdr">🔒 Voice Note Preview — E2EE</div>
+          <div class="vpreview-row">
+            <button id="vpreview-play" onclick="previewPlayPause()">▶</button>
+            <canvas id="vpreview-wave"></canvas>
+            <span id="vpreview-dur">0:00</span>
+          </div>
+          <div class="vpreview-acts">
+            <button id="vp-discard" onclick="discardVoiceNote()">✕ Discard</button>
+            <button id="vp-send" onclick="sendVoiceNote()">➤ Send Encrypted</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CALL OVERLAY -->
+<div id="call-ov">
+  <div class="call-hdr">
+    <div class="call-ttl" id="call-ttl">Encrypted Call</div>
+    <div class="call-pill">🔒 DTLS-SRTP</div>
+    <div class="call-tmr" id="ctmr">00:00</div>
+  </div>
+  <div class="call-vids">
+    <video id="rvid" autoplay playsinline></video>
+    <video id="lvid" autoplay playsinline muted></video>
+    <div class="screen-banner" id="screen-banner"><div class="sdot"></div>🖥 Sharing your screen — encrypted</div>
+    <div class="cwait" id="cwait">
+      <div class="wav" id="wav">?</div>
+      <div class="wname" id="wname">Calling…</div>
+      <div class="wst" id="wst">Establishing encrypted tunnel…</div>
+      <div class="abars" id="abars" style="display:none">
+        <div class="ab"></div><div class="ab"></div><div class="ab"></div><div class="ab"></div><div class="ab"></div>
+      </div>
+    </div>
+  </div>
+  <!-- Screen share options popup — shown above controls bar -->
+  <div id="screen-opts">
+    <div class="sopt-title">🖥 Share Screen</div>
+    <div class="sopt-row">
+      <div>
+        <div class="sopt-lbl">Share computer audio</div>
+        <div class="sopt-sub">Includes system sounds &amp; app audio</div>
+      </div>
+      <label class="tgl"><input type="checkbox" id="sopt-audio" checked><span class="ttr"></span></label>
+    </div>
+    <div class="sopt-row">
+      <div>
+        <div class="sopt-lbl">Frame rate</div>
+        <div class="sopt-sub">Higher = smoother, more bandwidth</div>
+      </div>
+      <select id="sopt-fps" style="background:var(--panel);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:11px;padding:4px 8px;outline:none">
+        <option value="5">5 fps</option>
+        <option value="15" selected>15 fps</option>
+        <option value="30">30 fps</option>
+        <option value="60">60 fps</option>
+      </select>
+    </div>
+    <button class="sopt-btn" onclick="startScreenShare()">Start Sharing</button>
+    <button class="sopt-cancel" onclick="closeScreenOpts()">Cancel</button>
+  </div>
+  <div class="cctrl">
+    <button class="cbtn n" id="btn-mute" onclick="toggleMute()">🎤</button>
+    <button class="cbtn n" id="btn-cam" onclick="toggleCam()">📷</button>
+    <button class="cbtn n" id="btn-screen" onclick="toggleScreen()" title="Share Screen">🖥</button>
+    <button class="cbtn end" onclick="endCall()">📵</button>
+  </div>
+</div>
+
+<!-- INCOMING CALL -->
+<div id="inc-toast">
+  <div class="inc-lbl"><div class="rdot"></div>Incoming Encrypted Call</div>
+  <div class="inc-caller">
+    <div class="av" id="inc-av" style="background:linear-gradient(135deg,#4488ff,#8844ee);color:#fff;font-family:var(--dis);font-size:14px;font-weight:700;width:42px;height:42px">?</div>
+    <div class="inc-info">
+      <div class="inc-name" id="inc-name">—</div>
+      <div class="inc-type" id="inc-type">Voice Call</div>
+    </div>
+  </div>
+  <div class="inc-act">
+    <button class="btn-acc" onclick="acceptCall()">✓ Accept</button>
+    <button class="btn-dec" onclick="declineCall()">✕ Decline</button>
+  </div>
+</div>
+
+<!-- ADD CONTACT MODAL -->
+<div class="ov" id="add-modal">
+  <div class="modal" style="width:460px">
+    <div class="mt">Add Contact</div>
+    <div class="ms">Paste your contact's <strong style="color:var(--green)">Public Key</strong>. Their display name will appear automatically once they come online. Both users must add each other's key.</div>
+    <div class="ml">Their Public Key</div>
+    <textarea class="mta" id="add-key" placeholder="Paste public key here…"></textarea>
+    <div class="mact">
+      <button class="mbp" onclick="addContact()">Add Contact</button>
+      <button class="mbs" onclick="closeSM('add-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- CREATE GROUP MODAL -->
+<div class="ov" id="group-modal">
+  <div class="modal" style="width:480px;max-width:95vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div class="mt">👥 New Group Chat</div>
+      <button class="ibt" onclick="closeSM('group-modal')">✕</button>
+    </div>
+    <div class="ms">Select contacts to add. The group key will be delivered to each member encrypted with their individual key.</div>
+    <div class="ml" style="margin-top:12px">Group Name</div>
+    <input class="finput" id="grp-name-inp" placeholder="e.g. Team Alpha, Family…" maxlength="40" style="margin-bottom:12px">
+    <div class="ml">Members <span style="color:var(--muted);font-weight:400;font-size:10px">(select from online contacts)</span></div>
+    <div id="grp-member-opts" style="max-height:200px;overflow-y:auto;background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:4px"></div>
+    <div class="mact" style="margin-top:14px">
+      <button class="mbp" onclick="createGroup()">Create Encrypted Group</button>
+      <button class="mbs" onclick="closeSM('group-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD MEMBER TO GROUP MODAL -->
+<div class="ov" id="addmember-modal">
+  <div class="modal" style="width:420px;max-width:95vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div class="mt">Add Member</div>
+      <button class="ibt" onclick="closeSM('addmember-modal')">✕</button>
+    </div>
+    <div class="ms">Select contacts to add to this group. They will receive the group key encrypted with their individual key.</div>
+    <div id="addmember-opts" style="max-height:220px;overflow-y:auto;background:var(--raised);border:1px solid var(--border);border-radius:8px;padding:4px;margin-top:10px"></div>
+    <div class="mact" style="margin-top:14px">
+      <button class="mbp" onclick="addMembersToGroup()">Add Selected</button>
+      <button class="mbs" onclick="closeSM('addmember-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- KEY SHARE MODAL (mobile-safe) -->
+<div class="ov" id="key-share-modal">
+  <div class="modal" style="width:460px;max-width:95vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+      <div class="mt">📋 Your Public Key</div>
+      <button class="ibt" onclick="closeSM('key-share-modal')">✕</button>
+    </div>
+    <div class="ms">Share this key with your contact so they can add you.</div>
+    <div class="key-display-wrap">
+      <textarea class="key-display" id="key-display-text"
+        onclick="this.select();try{this.setSelectionRange(0,99999);}catch(e){}"
+        onfocus="this.select();try{this.setSelectionRange(0,99999);}catch(e){}"
+        onkeydown="return false;"
+        spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"
+        style="-webkit-user-select:text;user-select:text;"
+        title="Tap to select, then Copy"></textarea>
+    </div>
+    <button class="key-share-native" id="key-share-btn" onclick="keyModalShare()">↗ Share via Messages / AirDrop / WhatsApp…</button>
+    <div class="key-act-row">
+      <button class="mbp" id="key-copy-btn" onclick="keyModalCopy()">📋 Copy Key</button>
+      <button class="mbs" onclick="closeSM('key-share-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- SCRAMBLER MODAL -->
+<div class="ov" id="scram-modal">
+  <div class="modal" style="width:490px">
+    <div class="mt">🔀 Key Scrambler / Descrambler</div>
+    <div class="ms">Obfuscate your public key before sending over insecure channels. Use the same passphrase to descramble on the other end.</div>
+    <div class="ml">Input (your key or received scrambled key)</div>
+    <textarea class="mta" id="si" placeholder="Paste key here…" style="min-height:68px"></textarea>
+    <div class="ml">Passphrase (optional — must match to descramble)</div>
+    <input class="mi" id="sp" placeholder="Leave blank for default…">
+    <div class="scr-acts">
+      <button class="scrb" onclick="doScramble()">🔀 Scramble</button>
+      <button class="scrb" onclick="doDescramble()">🔓 Descramble</button>
+      <button class="scrb" onclick="copyScrOut()">📋 Copy Output</button>
+      <button class="scrb" onclick="useAsKey()">➕ Use as Contact Key</button>
+      <button class="scrb" onclick="clearScrambler()" style="color:var(--red);border-color:rgba(255,68,102,.35)">🗑 Clear All</button>
+    </div>
+    <div class="ml" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Output</span>
+      <button class="scrb" onclick="clearScrOut()" style="font-size:10px;padding:3px 9px;color:var(--muted)">✕ Clear</button>
+    </div>
+    <textarea class="scr-out" id="so" title="Tap to select" readonly onclick="this.select();try{this.setSelectionRange(0,99999);}catch(e){}" onfocus="this.select();try{this.setSelectionRange(0,99999);}catch(e){}" style="-webkit-user-select:text;user-select:text;" spellcheck="false">—</textarea>
+    <div class="mact"><button class="mbs" style="flex:0 0 auto;width:90px" onclick="closeSM('scram-modal')">Close</button></div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="ov" id="settings-modal">
+  <div class="modal" style="width:470px;max-height:88vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+      <div class="mt">⚙ Settings</div>
+      <button class="ibt" onclick="closeSM('settings-modal')">✕</button>
+    </div>
+    <div class="ms">Manage identity, encryption, appearance.</div>
+
+    <div class="ss">
+      <div class="st">🪪 Identity</div>
+      <div class="sr"><div class="sl">Display Name</div><input class="mi" id="s-name" style="margin-bottom:0;width:175px;font-size:11px"></div>
+      <div class="sr"><div class="sl">Username</div><div class="sv" id="s-user" style="font-family:var(--mono);color:var(--green)">—</div></div>
+      <div class="sr" style="align-items:flex-start"><div class="sl">Fingerprint</div><div class="sv" id="s-fp" style="font-family:var(--mono);font-size:9px;max-width:220px;word-break:break-all;text-align:right">—</div></div>
+      <div class="sr"><div class="sl">Public Key</div><button class="sb2" onclick="openKeyShareModal()">📋 Copy / Share</button></div>
+    </div>
+
+    <div class="ss">
+      <div class="st">🔐 Encryption</div>
+      <div class="sr"><div class="sl">Key Exchange</div><div class="sv"><span class="badge">ECDH P-256</span></div></div>
+      <div class="sr"><div class="sl">Messages</div><div class="sv"><span class="badge">AES-GCM-256</span></div></div>
+      <div class="sr"><div class="sl">Key Derivation</div><div class="sv"><span class="badge">HKDF-SHA-256</span></div></div>
+      <div class="sr"><div class="sl">Calls</div><div class="sv"><span class="badge">DTLS-SRTP</span></div></div>
+      <div class="sr"><div class="sl">Private Key</div><div class="sv"><span class="badge">Device Only</span></div></div>
+    </div>
+
+    <div class="ss">
+      <div class="st">🔔 Notifications</div>
+      <div class="sr"><div class="sl">Ring on call</div><label class="tgl"><input type="checkbox" id="s-ring" checked><span class="ttr"></span></label></div>
+      <div class="sr"><div class="sl">Desktop notifications</div><label class="tgl"><input type="checkbox" id="s-notif" onchange="toggleNotifs(this.checked)"><span class="ttr"></span></label></div>
+    </div>
+
+    <div class="ss">
+      <div class="st">🎨 Appearance</div>
+      <div class="sr">
+        <div class="sl">Accent</div>
+        <div style="display:flex;gap:7px">
+          <button class="sw active" id="sw0" style="background:#00e8a0" onclick="setAccent('#00e8a0','rgba(0,232,160,.13)','sw0')"></button>
+          <button class="sw" id="sw1" style="background:#4488ff" onclick="setAccent('#4488ff','rgba(68,136,255,.13)','sw1')"></button>
+          <button class="sw" id="sw2" style="background:#ff6644" onclick="setAccent('#ff6644','rgba(255,102,68,.13)','sw2')"></button>
+          <button class="sw" id="sw3" style="background:#cc44ff" onclick="setAccent('#cc44ff','rgba(204,68,255,.13)','sw3')"></button>
+          <button class="sw" id="sw4" style="background:#ffcc00" onclick="setAccent('#ffcc00','rgba(255,204,0,.13)','sw4')"></button>
+        </div>
+      </div>
+      <div class="sr">
+        <div class="sl">Font Size</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="sb2" style="padding:3px 9px" onclick="chFS(-1)">A−</button>
+          <span id="s-fs" style="font-size:11px;color:var(--text);min-width:28px;text-align:center">13px</span>
+          <button class="sb2" style="padding:3px 9px" onclick="chFS(1)">A+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ss" style="border-color:rgba(255,50,80,.22);background:rgba(255,30,60,.04)">
+      <div class="st" style="color:var(--red)">⚠ Danger Zone</div>
+      <div class="sr"><div class="sl">Clear message history</div><button class="sb2d" onclick="clearHist()">🗑 Clear</button></div>
+      <div class="sr"><div class="sl">Delete identity &amp; reload</div><button class="sb2d" onclick="nukeId()">💣 Delete</button></div>
+    </div>
+
+    <div class="mact" style="margin-top:14px">
+      <button class="mbp" onclick="saveSettings()">Save</button>
+      <button class="mbs" onclick="closeSM('settings-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="ta" id="ta"></div>
+
+<!-- LIGHTBOX -->
+<div id="lightbox" onclick="closeLightbox()">
+  <button id="lb-close" onclick="closeLightbox()">✕</button>
+  <div id="lb-content"></div>
+  <button id="lb-dl" onclick="event.stopPropagation();lbDownload()">&#8595; Save</button>
+</div>
+
+<!-- MEDIA PERMISSION HELP MODAL -->
+<div class="ov" id="media-help-modal">
+  <div class="modal" style="max-width:95vw;width:440px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="mt" id="mhelp-title">📵 Camera / Mic Blocked</div>
+      <button class="ibt" onclick="closeSM('media-help-modal')">✕</button>
+    </div>
+    <div id="mhelp-body" style="font-size:13px;color:var(--text);line-height:1.7"></div>
+    <div class="mact" style="margin-top:18px">
+      <button class="mbp" onclick="closeSM('media-help-modal')">Got it</button>
+    </div>
+  </div>
+</div>
+
+<audio id="raud" autoplay playsinline style="position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;pointer-events:none"></audio>
+
+<script>
+// ================================================================
+// ── Catch ALL JS errors and show them visibly on-screen — critical for iPad debugging ──
+window.onerror = function(msg, src, line, col, err) {
+  var banner = document.getElementById('crypto-err');
+  if (banner) {
+    banner.innerHTML = '<strong>⚠️ JavaScript Error</strong><br>' +
+      (msg || 'Unknown error') + '<br>' +
+      '<span style="font-size:10px;opacity:.7">' + (src||'') + ':' + line + '</span>';
+    banner.style.display = 'block';
+  }
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  var banner = document.getElementById('crypto-err');
+  if (banner && document.getElementById('id-screen').style.display !== 'none') {
+    banner.innerHTML = '<strong>⚠️ Async Error</strong><br>' +
+      ((e.reason && e.reason.message) || String(e.reason) || 'Unknown rejection');
+    banner.style.display = 'block';
+  }
+});
+
+// ── Safe Uint8Array → base64 (no spread — avoids stack overflow on old iPad/Safari) ──
+function u8b64(u8) {
+  var s = '', B = 8192;
+  for (var i = 0; i < u8.length; i += B)
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + B));
+  return btoa(s);
+}
+
+// CRYPTO  (ECDH P-256 · AES-GCM-256 · HKDF-SHA-256)
+// ================================================================
+const E2EE = {
+  async genKeys() {
+    return crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'}, true, ['deriveKey','deriveBits']);
+  },
+  async exportPub(k) {
+    const r = await crypto.subtle.exportKey('raw', k);
+    return u8b64(new Uint8Array(r));
+  },
+  async importPub(b64) {
+    const r = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return crypto.subtle.importKey('raw', r, {name:'ECDH',namedCurve:'P-256'}, true, []);
+  },
+  async deriveKey(priv, pub) {
+    const bits = await crypto.subtle.deriveBits({name:'ECDH',public:pub}, priv, 256);
+    const hk = await crypto.subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      {name:'HKDF',hash:'SHA-256',salt:new Uint8Array(32),info:new TextEncoder().encode('VaultChat-v1')},
+      hk, {name:'AES-GCM',length:256}, true, ['encrypt','decrypt']
+    );
+  },
+  async encrypt(key, text) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({name:'AES-GCM',iv}, key, new TextEncoder().encode(text));
+    return { iv: u8b64(iv), ct: u8b64(new Uint8Array(ct)) };
+  },
+  async decrypt(key, ivct) {
+    const ivB = Uint8Array.from(atob(ivct.iv), c => c.charCodeAt(0));
+    const ctB = Uint8Array.from(atob(ivct.ct), c => c.charCodeAt(0));
+    return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ivB}, key, ctB));
+  },
+  async fingerprint(pub) {
+    const r = await crypto.subtle.exportKey('raw', pub);
+    const h = await crypto.subtle.digest('SHA-256', r);
+    return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2,'0')).join('')
+      .match(/.{1,4}/g).join(':').toUpperCase().slice(0,47);
+  },
+  async exportRaw(k) {
+    const r = await crypto.subtle.exportKey('raw', k);
+    return u8b64(new Uint8Array(r));
+  },
+  // Group key: random AES-GCM-256, not derived — independent of any ECDH
+  async genGroupKey() {
+    return crypto.subtle.generateKey({ name:'AES-GCM', length:256 }, true, ['encrypt','decrypt']);
+  },
+  async exportGroupKey(k) {
+    const r = await crypto.subtle.exportKey('raw', k);
+    return u8b64(new Uint8Array(r));
+  },
+  async importGroupKey(b64) {
+    const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return crypto.subtle.importKey('raw', raw, { name:'AES-GCM' }, true, ['encrypt','decrypt']);
+  }
+};
+
+// ================================================================
+// SIGNALING  (MQTT over WebSocket — cross-device, cross-browser)
+// Uses the free HiveMQ public broker — no account or API key needed.
+// Topics:
+//   vc5/u/{username}   — direct messages to a specific user
+//   vc5/bc             — broadcast to all online users
+// ================================================================
+class Sig {
+  constructor(myId) {
+    this.id     = myId;
+    this.h      = {};
+    this.client = null;
+    this._init();
+  }
+
+  _init() {
+    var self    = this;
+    // Unique client ID prevents broker rejecting reconnects from same session
+    var clientId = 'vc_' + this.id + '_' + Math.random().toString(36).slice(2, 9);
+
+    this.client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+      clientId:        clientId,
+      clean:           true,
+      reconnectPeriod: 4000,
+      connectTimeout:  15000,
+      keepalive:       30
+    });
+
+    this.client.on('connect', function() {
+      // Subscribe to our personal inbox and the shared broadcast channel
+      self.client.subscribe('vc5/u/' + self.id,  { qos: 0 });
+      self.client.subscribe('vc5/bc',             { qos: 0 });
+      setSigStatus('connected', 'Network connected');
+    });
+
+    this.client.on('reconnect', function() {
+      setSigStatus('connecting', 'Reconnecting…');
+    });
+
+    this.client.on('offline', function() {
+      setSigStatus('error', 'Network offline — retrying…');
+    });
+
+    this.client.on('error', function(err) {
+      setSigStatus('error', 'Signal error: ' + (err.message || err));
+    });
+
+    this.client.on('message', function(topic, message) {
+      try {
+        var data = JSON.parse(message.toString());
+        if (data.from === self.id) return;
+        // Allow group topic messages through — they don't have a 'to' field
+        var isGroupTopic = topic.startsWith('vc5/g/');
+        if (!isGroupTopic && topic !== 'vc5/bc' && data.to !== self.id) return;
+        var fn = self.h[data.type];
+        if (fn) {
+          try {
+            var result = fn(data);
+            if (result && typeof result.catch === 'function') result.catch(function(e) { console.error('handler err [' + data.type + ']:', e); });
+          } catch(e) { console.error('handler sync err [' + data.type + ']:', e); }
+        }
+      } catch(e) {}
+    });
+  }
+
+  on(t, fn) { this.h[t] = fn; }
+
+  send(to, type, pay) {
+    if (!this.client || !this.client.connected) return;
+    var msg = JSON.stringify(Object.assign({ from: this.id, to: to, type: type }, pay || {}));
+    this.client.publish('vc5/u/' + to, msg, { qos: 0 });
+  }
+
+  subscribeGroup(groupId) {
+    if (!this.client) return;
+    this.client.subscribe('vc5/g/' + groupId, { qos: 0 });
+  }
+
+  sendGroup(groupId, type, pay) {
+    if (!this.client || !this.client.connected) return;
+    var msg = JSON.stringify(Object.assign({ from: this.id, type: type, groupId: groupId }, pay || {}));
+    this.client.publish('vc5/g/' + groupId, msg, { qos: 0 });
+  }
+
+  // QoS 1 publish — broker acknowledges receipt; returns a Promise
+  sendR(to, type, pay) {
+    var self = this;
+    return new Promise(function(resolve, reject) {
+      if (!self.client || !self.client.connected) return reject(new Error('Not connected'));
+      var msg = JSON.stringify(Object.assign({ from: self.id, to: to, type: type }, pay || {}));
+      self.client.publish('vc5/u/' + to, msg, { qos: 1 }, function(err) {
+        if (err) reject(err); else resolve();
+      });
+    });
+  }
+
+  bcast(type, pay) {
+    if (!this.client || !this.client.connected) return;
+    var msg = JSON.stringify(Object.assign({ from: this.id, to: '*', type: type }, pay || {}));
+    this.client.publish('vc5/bc', msg, { qos: 0 });
+  }
+
+  destroy() {
+    if (this.client) {
+      this.client.end(true);
+      this.client = null;
+    }
+  }
+}
+
+function setSigStatus(state, text) {
+  var bar = document.getElementById('sig-bar');
+  var txt = document.getElementById('sig-bar-txt');
+  if (!bar || !txt) return;
+  bar.style.display = 'flex';
+  bar.className = 'sig-bar ' + state;
+  txt.textContent = text;
+  // Auto-hide after 4s when connected to keep UI clean
+  if (state === 'connected') {
+    setTimeout(function() {
+      if (bar.classList.contains('connected')) bar.style.display = 'none';
+    }, 4000);
+  }
+}
+
+// ================================================================
+// STATE
+// contacts  keyed by contactId (SHA-256 hash of pubkey)
+// bySigId   reverse map: sigId (username) -> contactId
+// contact.sigId = peer's real username — filled on first ping/pong
+// ================================================================
+var me       = { id:null, name:null, kp:null, pubB64:null, fp:null };
+var sig      = null;
+var contacts = {};
+var bySigId  = {};
+var groups   = {};   // groupId → { id, name, members:[{sigId,name}], key, keyB64, msgs:[], unread:0, creator }
+var activePeer = null;
+var fsz = 13;
+
+function cBySig(sigId)   { var cid = bySigId[sigId]; return cid ? contacts[cid] : null; }
+function cidBySig(sigId) { return bySigId[sigId] || null; }
+
+// ================================================================
+// MOBILE NAV
+// ================================================================
+function isMobile() { return window.innerWidth <= 1100; }
+
+function mobileOpenChat() {
+  if (!isMobile()) return;
+  document.querySelector('.sb').classList.add('chat-open');
+  document.querySelector('.chat-area').classList.add('chat-open');
+  document.getElementById('back-btn').style.display = 'flex';
+  // Prevent body scroll when chat is open
+  document.getElementById('msgs').scrollTop = document.getElementById('msgs').scrollHeight;
+}
+
+function mobileBack() {
+  document.querySelector('.sb').classList.remove('chat-open');
+  document.querySelector('.chat-area').classList.remove('chat-open');
+  document.getElementById('back-btn').style.display = 'none';
+}
+
+// On resize to desktop, clear mobile nav state
+window.addEventListener('resize', function() {
+  if (!isMobile()) {
+    document.querySelector('.sb').classList.remove('chat-open');
+    document.querySelector('.chat-area').classList.remove('chat-open');
+    document.getElementById('back-btn').style.display = 'none';
+  }
+});
+
+// ── KEYBOARD HANDLING (mobile) ──
+// When the software keyboard opens, the visual viewport shrinks.
+// We push the ibar up by the keyboard height so it stays visible.
+(function() {
+  if (!window.visualViewport) return;
+
+  function onVVResize() {
+    if (!isMobile()) return;
+    var vv     = window.visualViewport;
+    var offset = window.innerHeight - (vv.height + vv.offsetTop);
+    var ibar   = document.querySelector('.ibar');
+    if (!ibar) return;
+    // offset > 20 means keyboard is open
+    var kbdH = offset > 20 ? offset : 0;
+    ibar.style.paddingBottom = kbdH
+      ? kbdH + 'px'
+      : 'calc(9px + env(safe-area-inset-bottom))';
+    // Scroll messages to bottom when keyboard opens
+    if (kbdH > 20) {
+      var msgs = document.getElementById('msgs');
+      if (msgs) setTimeout(function() { msgs.scrollTop = msgs.scrollHeight; }, 50);
+    }
+  }
+
+  window.visualViewport.addEventListener('resize', onVVResize);
+  window.visualViewport.addEventListener('scroll', onVVResize);
+})();
+
+// Match incoming sigId+pubKey to existing contact by pubkey equality
+function tryLink(sigId, pubKey) {
+  if (!sigId || !pubKey) return;
+  if (bySigId[sigId]) return; // already mapped
+  var cid = Object.keys(contacts).find(function(k) { return contacts[k].pubB64 === pubKey; });
+  if (cid) {
+    contacts[cid].sigId = sigId;
+    bySigId[sigId] = cid;
+  }
+}
+
+var call = {
+  active:false, isVideo:false,
+  peerId:null, peerSigId:null,
+  pc:null, local:null, remoteStream:null, timer:null, secs:0,
+  muted:false, camOff:false, screenSharing:false, screenStream:null,
+  pending:null, pendingFrom:null,
+  iceBuf:[],
+  screenAudioCtx:null, screenMixedTrack:null,
+  callId:null,     // unique per call session — stale messages from old calls are ignored
+  connected:false, // true once first remote track received
+  answered:false   // true once call-answer received — prevents ring starting after answer arrives
+};
+
+function newCallId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+// ================================================================
+// RINGTONE  (Web Audio API)
+// ================================================================
+var ringIv  = null;
+var _audCtx = null;   // single shared AudioContext for all tones
+
+function getAudCtx() {
+  try {
+    if (!_audCtx || _audCtx.state === 'closed') {
+      _audCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_audCtx.state === 'suspended') {
+      _audCtx.resume().catch(function() {}); // swallow rejection — iOS outside gesture
+    }
+    return _audCtx;
+  } catch(e) { return null; }
+}
+
+function startRing() {
+  if (call.answered) return; // answer already received — don't start ringing now
+  var el = document.getElementById('s-ring');
+  if (el && !el.checked) return;
+  stopRing(); playBeep();
+  ringIv = setInterval(playBeep, 2200);
+}
+function stopRing() { clearInterval(ringIv); ringIv = null; }
+
+var _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+             (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
+async function releaseAudCtx() {
+  // Close the shared AudioContext.
+  // iOS: MUST await — audio session is exclusive; getUserMedia gets muted tracks otherwise.
+  // Android: MUST NOT await — it breaks the user gesture chain, causing muted tracks.
+  if (_audCtx) {
+    var ctx = _audCtx;
+    _audCtx = null;
+    if (_isIOS) {
+      try { await ctx.close(); } catch(e) {}
+      await new Promise(function(r) { setTimeout(r, 80); });
+    } else {
+      try { ctx.close(); } catch(e) {} // fire-and-forget on Android/desktop
+    }
+  }
+}
+
+function playBeep() {
+  var ctx = getAudCtx(); if (!ctx) return;
+  try {
+    [0, 160, 320].forEach(function(delay) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 880;
+      var t = ctx.currentTime + delay/1000;
+      g.gain.setValueAtTime(0.25, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      o.start(t); o.stop(t + 0.14);
+    });
+  } catch(e) {}
+}
+
+function playConnected() {
+  var ctx = getAudCtx(); if (!ctx) return;
+  try {
+    [880, 1100].forEach(function(f, i) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = f;
+      var t = ctx.currentTime + i * 0.14;
+      g.gain.setValueAtTime(0.2, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+      o.start(t); o.stop(t + 0.12);
+    });
+  } catch(e) {}
+}
+
+// ================================================================
+// IDENTITY
+// ================================================================
+async function createIdentity() {
+  var name = document.getElementById('inp-name').value.trim();
+  var user = document.getElementById('inp-user').value.trim().replace(/^@/, '');
+  if (!name)              return toast('Enter a display name');
+  if (!user || user.length < 2) return toast('Username too short');
+  if (!/^[a-zA-Z0-9_]+$/.test(user)) return toast('Username: letters, numbers, _ only');
+
+  var btn = document.getElementById('go-btn');
+  btn.disabled = true;
+  document.getElementById('spin-row').style.display = 'flex';
+
+  try {
+    me.kp     = await E2EE.genKeys();
+    me.pubB64 = await E2EE.exportPub(me.kp.publicKey);
+    me.fp     = await E2EE.fingerprint(me.kp.publicKey);
+    me.name   = name;
+    me.id     = user;
+
+    sig = new Sig(me.id);
+    setupSig();
+    setSigStatus('connecting', 'Connecting to network…');
+
+    document.getElementById('my-name').textContent = name;
+    document.getElementById('my-fp').textContent   = me.fp.slice(0,23) + '…';
+    document.getElementById('my-av').textContent   = name[0].toUpperCase();
+
+    var s = document.getElementById('id-screen');
+    s.style.transition = 'opacity .4s';
+    s.style.opacity = '0';
+    setTimeout(function() {
+      s.style.display = 'none';
+      document.getElementById('app').classList.add('visible');
+    }, 400);
+
+    toast('ECDH P-256 keypair ready');
+  } catch(e) {
+    var msg = e.message || String(e);
+    // Show persistent banner so it doesn't vanish on iPad
+    var banner = document.getElementById('crypto-err');
+    if (banner) {
+      if (!window.isSecureContext || msg.toLowerCase().includes('secure') || msg.toLowerCase().includes('subtle')) {
+        banner.innerHTML = '<strong>🔒 HTTPS Required</strong><br>Safari on iPad blocks encryption on HTTP. Open this page via <strong>https://</strong>';
+      } else {
+        banner.innerHTML = '<strong>⚠️ Key generation failed</strong><br>' + esc(msg);
+      }
+      banner.style.display = 'block';
+    }
+    toast('Error: ' + msg);
+    btn.disabled = false;
+    document.getElementById('spin-row').style.display = 'none';
+  }
+}
+
+// ================================================================
+// SIGNALING SETUP — called immediately after new Sig()
+// ================================================================
+function setupSig() {
+
+  sig.on('ping', async function(data) {
+    if (data.from === me.id) return;
+    tryLink(data.from, data.pubKey);
+    var c = cBySig(data.from);
+    if (!c) return;
+    if (!c.sharedKey && data.pubKey) await resolveKey(c, data.pubKey);
+    c.online = true;
+    if (data.name) { c.name = data.name; c.pendingName = false; }
+    sig.send(data.from, 'pong', { pubKey: me.pubB64, name: me.name });
+    updateOnline(); renderContacts();
+    if (activePeer && bySigId[data.from] === activePeer) {
+      document.getElementById('ch-name').textContent = c.name;
+      updateChatSt();
+    }
+    // Update group status lines where this member appears
+    if (activePeer && activePeer.startsWith('g_')) updateChatSt();
+  });
+
+  sig.on('pong', async function(data) {
+    if (data.from === me.id) return;
+    tryLink(data.from, data.pubKey);
+    var c = cBySig(data.from);
+    if (!c) return;
+    if (!c.sharedKey && data.pubKey) await resolveKey(c, data.pubKey);
+    c.online = true;
+    if (data.name) { c.name = data.name; c.pendingName = false; }
+    updateOnline(); renderContacts();
+    if (activePeer && bySigId[data.from] === activePeer) {
+      document.getElementById('ch-name').textContent = c.name;
+      updateChatSt();
+    }
+  });
+
+  sig.on('offline', function(data) {
+    var c = cBySig(data.from);
+    if (c) {
+      c.online = false;
+      renderContacts();
+      if (activePeer && bySigId[data.from] === activePeer) updateChatSt();
+    }
+    // If the peer who went offline was the pending caller, clear pending call state.
+    // Without this, call.pending stays set forever when the caller closes their
+    // browser (beforeunload sends 'offline', not 'call-end'), causing every
+    // subsequent incoming call to be auto-declined.
+    if (call.pending && call.pendingFrom === data.from && !call.active) {
+      stopRing();
+      document.getElementById('inc-toast').classList.remove('active');
+      call.pending = null; call.pendingFrom = null; call.iceBuf = [];
+      call.callId = null; call.connected = false; call.answered = false;
+    }
+  });
+
+  sig.on('msg', async function(data) {
+    if (data.from === me.id) return;
+    var c   = cBySig(data.from);
+    var cid = cidBySig(data.from);
+    if (!c || !c.sharedKey) return;
+    try {
+      var txt = await E2EE.decrypt(c.sharedKey, { iv: data.iv, ct: data.ct });
+      c.msgs.push({ text: txt, time: Date.now(), mine: false });
+      if (activePeer !== cid) c.unread = (c.unread || 0) + 1;
+      renderContacts();
+      if (activePeer === cid) renderMsgs();
+    } catch(e) { console.error('Decrypt fail', e); }
+  });
+
+  sig.on('call-offer', function(data) {
+    if (data.from === me.id) return;
+
+    // ── Clear stale pending state ──
+    // If call.pending is set but call.pc was never created (user never tapped Accept),
+    // the previous incoming call was abandoned. On mobile, MQTT QoS 0 can lose the
+    // caller's call-end message, leaving call.pending stuck forever — which auto-declines
+    // every subsequent call. Detect this and clear it.
+    if (call.pending && !call.pc && !call.active) {
+      stopRing();
+      document.getElementById('inc-toast').classList.remove('active');
+      call.pending = null; call.pendingFrom = null; call.iceBuf = [];
+      call.callId = null; call.connected = false; call.answered = false;
+    }
+
+    if (call.active) {
+      sig.send(data.from, 'call-decline', { callId: data.callId });
+      return;
+    }
+    var c = cBySig(data.from);
+    if (!c) {
+      sig.send(data.from, 'call-decline', { callId: data.callId });
+      return;
+    }
+    call.pending     = data.offer;
+    call.pendingFrom = data.from;
+    call.callId      = data.callId || null;
+    call.isVideo     = data.isVideo;
+    call.iceBuf      = [];
+    showIncoming(c, data.isVideo);
+    startRing();
+    // ── Stale pending timeout ──
+    // If the user doesn't tap Accept or Decline within 60s, auto-clear the
+    // pending state. This prevents call.pending from getting permanently stuck
+    // on mobile (where call-end messages can be lost due to MQTT QoS 0).
+    var pendingCallId = call.callId;
+    setTimeout(function() {
+      if (call.pending && !call.active && call.callId === pendingCallId) {
+        stopRing();
+        document.getElementById('inc-toast').classList.remove('active');
+        call.pending = null; call.pendingFrom = null; call.iceBuf = [];
+        call.callId = null; call.connected = false; call.answered = false;
+      }
+    }, 60000);
+  });
+
+  sig.on('call-answer', async function(data) {
+    if (!call.pc) return;
+    if (call.callId && (!data.callId || data.callId !== call.callId)) return;
+    call.answered = true;
+    stopRing();
+    // stopRing() only clears the interval — the AudioContext stays alive,
+    // holding the iOS audio session and potentially interfering with WebRTC audio.
+    if (_audCtx) { try { _audCtx.close(); } catch(e) {} _audCtx = null; }
+    try {
+      await call.pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      for (var i = 0; i < call.iceBuf.length; i++) {
+        try { await call.pc.addIceCandidate(new RTCIceCandidate(call.iceBuf[i])); } catch(e) {}
+      }
+      call.iceBuf = [];
+    } catch(e) {
+      toast('Call answer failed: ' + e.message);
+      endCall(true);
+    }
+  });
+
+  sig.on('call-ice', async function(data) {
+    // ── CRITICAL: Don't require call.pc to exist ──
+    // The caller sends ICE candidates within 1-2s of the offer.
+    // The callee may not tap "Accept" for 3-10s. In the original code,
+    // `if (!call.pc) return` silently DROPPED every single candidate that
+    // arrived before Accept, leaving the callee with zero ICE candidates.
+    // No candidates = no media path = blank video + no audio.
+    //
+    // Fix: buffer candidates when we have a pending/active call, even if
+    // the PeerConnection hasn't been created yet.
+    if (call.callId && (!data.callId || data.callId !== call.callId)) return;
+    if (!call.pc && !call.pending && !call.active) return; // no call context at all
+
+    if (call.pc && call.pc.remoteDescription) {
+      // PC exists and remote description set — add directly
+      try { await call.pc.addIceCandidate(new RTCIceCandidate(data.c)); } catch(e) {}
+    } else {
+      // Either PC doesn't exist yet (incoming, not accepted) or
+      // remote description not yet set — buffer for later
+      call.iceBuf.push(data.c);
+    }
+  });
+
+  sig.on('call-end', function(data) {
+    if (!call.active && !call.pending) return;
+    if (call.callId && (!data.callId || data.callId !== call.callId)) return;
+    var peer = call.peerSigId || call.pendingFrom;
+    if (peer && data.from !== peer) return;
+    endCall(true);
+  });
+
+  sig.on('call-decline', function(data) {
+    if (!call.callId) return;  // not in a call at all — ignore
+    // THE KEY FIX: reject if callId absent OR mismatched — stale declines have no callId
+    if (!data.callId || data.callId !== call.callId) return;
+    var peer = call.peerSigId || call.pendingFrom;
+    if (peer && data.from !== peer) return;
+    toast('📵 Call declined');
+    endCall(false); // notify peer so they don't get stuck on a blank answered call
+  });
+
+  // ── FILE TRANSFER — WebRTC DataChannel signaling ──
+  // Actual file bytes travel P2P over DTLS DataChannel — MQTT only carries offer/answer/ICE
+
+  // ── GROUP CHAT SIGNALS ──
+  sig.on('group-invite', async function(data) {
+    if (data.from === me.id) return;
+    var sender = cBySig(data.from);
+    if (!sender || !sender.sharedKey) return;
+    // Decrypt the group key (was encrypted with our pairwise key)
+    var gkB64;
+    try {
+      gkB64 = await E2EE.decrypt(sender.sharedKey, { iv: data.kiv, ct: data.kct });
+    } catch(e) { console.error('group-invite decrypt fail', e); return; }
+    var gkey;
+    try { gkey = await E2EE.importGroupKey(gkB64); }
+    catch(e) { console.error('group key import fail', e); return; }
+
+    var gid = data.groupId;
+    if (!groups[gid]) {
+      groups[gid] = {
+        id: gid, name: data.groupName,
+        members: data.members || [],
+        key: gkey, keyB64: gkB64,
+        msgs: [], unread: 0,
+        creator: data.creator
+      };
+      sig.subscribeGroup(gid);
+      renderContacts();
+      toast('👥 Added to group: ' + data.groupName);
+    }
+  });
+
+  sig.on('group-member-added', function(data) {
+    // Existing member told a new member joined
+    var g = groups[data.groupId];
+    if (!g) return;
+    var already = g.members.some(function(m) { return m.sigId === data.member.sigId; });
+    if (!already) {
+      g.members.push(data.member);
+      g.msgs.push({ type:'sysmsg', text: data.member.name + ' joined the group', time: Date.now() });
+      if (activePeer === data.groupId) renderMsgs();
+      renderContacts();
+    }
+  });
+
+  sig.on('group-member-left', function(data) {
+    var g = groups[data.groupId];
+    if (!g) return;
+    g.members = g.members.filter(function(m) { return m.sigId !== data.sigId; });
+    g.msgs.push({ type:'sysmsg', text: (data.name||data.sigId) + ' left the group', time: Date.now() });
+    if (activePeer === data.groupId) renderMsgs();
+    renderContacts();
+  });
+
+  sig.on('gmsg', async function(data) {
+    var g = groups[data.groupId];
+    if (!g || !g.key) return;
+    try {
+      var txt = await E2EE.decrypt(g.key, { iv: data.iv, ct: data.ct });
+      var senderName = data.senderName || data.from;
+      g.msgs.push({ text: txt, time: Date.now(), mine: false, sender: senderName });
+      if (activePeer !== data.groupId) g.unread = (g.unread||0) + 1;
+      renderContacts();
+      if (activePeer === data.groupId) renderMsgs();
+    } catch(e) { console.error('gmsg decrypt fail', e); }
+  });
+
+  sig.on('file-dc-offer', async function(data) {
+    if (data.from === me.id) return;
+    var c   = cBySig(data.from);
+    var cid = cidBySig(data.from);
+    // For group file offers the sender must still be a contact (for WebRTC signaling routing)
+    // but the file key comes from the group
+    if (data.groupId) {
+      var g = groups[data.groupId];
+      if (!g || !g.key) return; // not in this group or no key yet
+      // Attach sender display name for the bubble
+      data.senderName = (c && c.name) || data.from;
+      await acceptFileOffer(data, c, cid);
+    } else {
+      if (!c || !c.sharedKey) return;
+      await acceptFileOffer(data, c, cid);
+    }
+  });
+
+  sig.on('file-dc-answer', async function(data) {
+      var xf = fileXfers[data.xferId];
+    if (!xf || !xf.pc) { return; }
+    try {
+      await xf.pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          for (var i = 0; i < xf.iceBuf.length; i++) {
+        try { await xf.pc.addIceCandidate(new RTCIceCandidate(xf.iceBuf[i])); } catch(e) {}
+      }
+      xf.iceBuf = [];
+    } catch(e) { }
+  });
+
+  sig.on('file-dc-ice', async function(data) {
+    var xf = fileXfers[data.xferId];
+    if (xf && xf.pc && xf.pc.remoteDescription) {
+      // PC exists and remote description set — add directly
+      try { await xf.pc.addIceCandidate(new RTCIceCandidate(data.c)); } catch(e) {}
+    } else if (xf) {
+      // PC exists but remote description not set yet — buffer on the xfer object
+      xf.iceBuf = xf.iceBuf || [];
+      xf.iceBuf.push(data.c);
+    } else {
+      // fileXfers entry doesn't exist yet — acceptFileOffer is still running
+      // (decrypting metadata, rendering DOM, etc). Buffer in pre-buffer so
+      // candidates aren't lost. acceptFileOffer will drain this.
+      if (!_fileIcePre[data.xferId]) _fileIcePre[data.xferId] = [];
+      _fileIcePre[data.xferId].push(data.c);
+    }
+  });
+
+  sig.on('file-dc-abort', function(data) {
+    var xf = fileXfers[data.xferId];
+    if (xf) { closeFileXfer(data.xferId); }
+    // Mark any receiving bubble as failed (contacts and groups)
+    Object.values(contacts).forEach(function(c) {
+      c.msgs && c.msgs.forEach(function(m) {
+        if (m.xferId === data.xferId && !m.done) { m.error = true; renderMsgs(); }
+      });
+    });
+    Object.values(groups).forEach(function(g) {
+      g.msgs && g.msgs.forEach(function(m) {
+        if (m.xferId === data.xferId && !m.done) { m.error = true; if (activePeer === g.id) renderMsgs(); }
+      });
+    });
+  });
+
+  // Peer toggled screen share — show/hide a banner on the receiver side
+  sig.on('screen-share', function(data) {
+    if (!call.active) return;
+    if (data.active) {
+      toast(data.name + ' is sharing their screen');
+      var b = document.getElementById('screen-banner');
+      if (b) { b.querySelector('.sdot') && (b.querySelector('span') || b).childNodes;
+        b.innerHTML = '<div class="sdot"></div>🖥 ' + (data.name || 'Peer') + ' is sharing screen';
+        b.classList.add('on');
+      }
+    } else {
+      var b = document.getElementById('screen-banner');
+      if (b) b.classList.remove('on');
+      toast('Screen share ended');
+    }
+  });
+}
+
+// ================================================================
+// KEY RESOLUTION
+// ================================================================
+async function resolveKey(c, pubKeyB64) {
+  try {
+    c.pubB64    = pubKeyB64;
+    c.pubKey    = await E2EE.importPub(pubKeyB64);
+    c.sharedKey = await E2EE.deriveKey(me.kp.privateKey, c.pubKey);
+    c.fp        = await E2EE.fingerprint(c.pubKey);
+    c.sessB64   = await E2EE.exportRaw(c.sharedKey);
+    renderContacts();
+    if (activePeer && contacts[activePeer] === c) {
+      document.getElementById('kp-peer').textContent = c.fp;
+      document.getElementById('kp-sess').textContent = c.sessB64.slice(0,36) + '…';
+    }
+  } catch(e) { console.error('resolveKey', e); }
+}
+
+// ================================================================
+// ADD CONTACT
+// ================================================================
+async function addContact() {
+  var keyRaw = document.getElementById('add-key').value.trim();
+  if (!keyRaw) return toast('Paste their public key');
+
+  var contactId;
+  try {
+    var raw = Uint8Array.from(atob(keyRaw), function(c) { return c.charCodeAt(0); });
+    var h   = await crypto.subtle.digest('SHA-256', raw);
+    contactId = 'c_' + Array.from(new Uint8Array(h)).slice(0,8).map(function(b) { return b.toString(16).padStart(2,'0'); }).join('');
+  } catch(e) { return toast('Invalid public key — check it and try again'); }
+
+  // Use a short key-derived placeholder until the peer pings with their real name
+  var placeholder = '…' + contactId.slice(-6);
+
+  if (contacts[contactId]) {
+    toast('Contact already added — name will update when they come online');
+  } else {
+    contacts[contactId] = {
+      id: contactId, name: placeholder, pubB64: keyRaw,
+      pubKey: null, sharedKey: null, fp: '', sessB64: '',
+      msgs: [], unread: 0, online: false, sigId: null,
+      pendingName: true   // flag so we replace the placeholder on first ping
+    };
+  }
+
+  await resolveKey(contacts[contactId], keyRaw);
+
+  // Ping immediately; if MQTT not yet connected, retry up to 5s
+  function doPing() {
+    if (sig && sig.client && sig.client.connected) {
+      sig.bcast('ping', { pubKey: me.pubB64, name: me.name });
+    } else {
+      setTimeout(doPing, 1000);
+    }
+  }
+  doPing();
+
+  closeSM('add-modal');
+  document.getElementById('add-key').value = '';
+  toast('Contact added — name will appear when they come online');
+  renderContacts();
+}
+
+function renderContacts() {
+  var list = document.getElementById('clist');
+  var keys = Object.keys(contacts);
+  if (!keys.length) {
+    list.innerHTML = '<div style="text-align:center;padding:26px 13px;color:var(--dim);font-size:11px;line-height:1.8">No contacts yet.<br>Click + Add Contact<br>and paste their public key.</div>';
+    return;
+  }
+  var COLS = [
+    'linear-gradient(135deg,#4488ff,#8844ee)',
+    'linear-gradient(135deg,#ff6644,#ee4488)',
+    'linear-gradient(135deg,#44ddff,#4488ff)',
+    'linear-gradient(135deg,#ffaa00,#ff6644)'
+  ];
+  var html = keys.map(function(cid) {
+    var c    = contacts[cid];
+    var last = c.msgs[c.msgs.length-1];
+    var prevTxt = last
+      ? (last.type === 'voice-tx' || last.type === 'voice-rx' ? '🎙 Voice note'
+        : last.type === 'file-tx' || last.type === 'file-rx'
+          ? ((last.mime && last.mime.startsWith('image/')) ? '🖼 Photo'
+            : (last.mime && last.mime.startsWith('video/')) ? '🎬 Video'
+            : '📎 ' + (last.name||'File'))
+        : (last.text||''))
+      : '';
+    var prev = last ? (last.mine ? '↑ ' : '') + prevTxt.slice(0,30) + (prevTxt.length > 30 ? '…' : '') : '🔑 E2EE ready';
+    var time = last ? fmt(last.time) : '';
+    var init = c.name.split(' ').map(function(w) { return w[0]; }).join('').toUpperCase().slice(0,2);
+    var col  = COLS[cid.charCodeAt(2) % COLS.length];
+    var onlineBg = c.online ? 'var(--green)' : 'var(--dim)';
+    var activeClass = activePeer === cid ? ' active' : '';
+    return '<div class="ci' + activeClass + '" data-cid="' + cid + '">' +
+      '<div class="av" style="background:' + col + ';color:#fff;font-family:var(--dis);font-size:12px;font-weight:700;position:relative">' +
+        init +
+        '<div style="position:absolute;bottom:0;right:0;width:9px;height:9px;border-radius:50%;background:' + onlineBg + ';border:2px solid var(--deep)"></div>' +
+      '</div>' +
+      '<div class="ci-info">' +
+        '<div class="ci-name">' + esc(c.name) + '</div>' +
+        '<div class="ci-prev">' + esc(prev) + '</div>' +
+      '</div>' +
+      '<div class="ci-meta">' +
+        '<div class="ci-time">' + time + '</div>' +
+        (c.unread ? '<div class="unread">' + c.unread + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+  // Append group rows
+  Object.keys(groups).forEach(function(gid) {
+    var g = groups[gid];
+    var lastMsg = g.msgs[g.msgs.length-1];
+    var prevTxt = lastMsg
+      ? (lastMsg.type === 'sysmsg' ? lastMsg.text
+        : lastMsg.mine ? '↑ ' + (lastMsg.text||'').slice(0,28)
+        : (lastMsg.sender ? lastMsg.sender.split(' ')[0] + ': ' : '') + (lastMsg.text||'').slice(0,24))
+      : '🔒 Group E2EE ready';
+    var time = lastMsg ? fmt(lastMsg.time) : '';
+    var activeClass = activePeer === gid ? ' active' : '';
+    var initials = g.name.split(' ').map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
+    html += '<div class="ci group' + activeClass + '" data-cid="' + gid + '">' +
+      '<div class="av" style="background:linear-gradient(135deg,#ff6644,#ffaa00);color:#fff;font-family:var(--dis);font-size:12px;font-weight:700;position:relative">' +
+        initials +
+        '<div style="position:absolute;bottom:-1px;right:-1px;font-size:8px;background:var(--deep);border-radius:50%;width:14px;height:14px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border)">👥</div>' +
+      '</div>' +
+      '<div class="ci-info">' +
+        '<div class="ci-name">' + esc(g.name) + '</div>' +
+        '<div class="ci-prev">' + esc(prevTxt) + '</div>' +
+      '</div>' +
+      '<div class="ci-meta">' +
+        '<div class="ci-time">' + time + '</div>' +
+        (g.unread ? '<div class="unread">' + g.unread + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  });
+
+  list.innerHTML = html;
+}
+
+function filterC(q) {
+  document.querySelectorAll('.ci').forEach(function(el) {
+    el.style.display = el.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
+  });
+}
+function updateOnline() {
+  document.getElementById('oct').textContent = Object.values(contacts).filter(function(c) { return c.online; }).length + ' online';
+}
+
+// ================================================================
+// OPEN CHAT
+// ================================================================
+function openChat(cid) {
+  activePeer = cid;
+  document.getElementById('chat-empty').style.display = 'none';
+  var p = document.getElementById('chat-panel');
+  p.style.display = 'flex';
+  p.style.flexDirection = 'column';
+
+  var COLS = [
+    'linear-gradient(135deg,#4488ff,#8844ee)',
+    'linear-gradient(135deg,#ff6644,#ee4488)',
+    'linear-gradient(135deg,#44ddff,#4488ff)',
+    'linear-gradient(135deg,#ffaa00,#ff6644)'
+  ];
+
+  if (cid.startsWith('g_')) {
+    // ── Group chat ──
+    var g = groups[cid];
+    if (!g) return;
+    g.unread = 0;
+    var init = g.name.split(' ').map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
+    document.getElementById('ch-av').textContent      = init;
+    document.getElementById('ch-av').style.background = 'linear-gradient(135deg,#ff6644,#ffaa00)';
+    document.getElementById('ch-name').textContent    = g.name;
+    // Show member chips in status line
+    var onlineMembers = g.members.filter(function(m){
+      return Object.values(contacts).some(function(c){ return c.sigId === m.sigId && c.online; });
+    });
+    document.getElementById('ch-st').textContent = g.members.length + ' members · ' + onlineMembers.length + ' online';
+    document.getElementById('ch-dot').style.color = onlineMembers.length ? 'var(--green)' : 'var(--dim)';
+    // Show group pill instead of E2EE pill in header
+    var e2pill = document.querySelector('.e2pill');
+    if (e2pill) e2pill.textContent = '🔒 Group E2EE';
+    // Hide call buttons for groups, show Add Member if creator
+    document.querySelector('.abt.c') && (document.querySelector('.abt.c').style.display = 'none');
+    document.querySelector('.abt.v') && (document.querySelector('.abt.v').style.display = 'none');
+    var leaveBtn = document.getElementById('leave-grp-btn');
+    if (leaveBtn) leaveBtn.style.display = '';
+    var kbtn = document.querySelector('.abt.k');
+    if (kbtn) { kbtn.textContent = '👥'; kbtn.title = 'Add Members'; kbtn.onclick = function(){ openAddMember(); }; }
+    // Key panel shows group info
+    // Kpanel: swap to group members view
+    document.getElementById('kp-title').textContent = '👥 Group Info';
+    document.getElementById('kp-sub').textContent   = 'All messages use the shared group key.';
+    document.getElementById('kp-l1').textContent    = 'Group Name';
+    document.getElementById('kp-me').textContent    = g.name;
+    document.getElementById('kp-l2').style.display  = 'none';
+    document.getElementById('kp-peer').closest('.kp-sec').style.display = 'none';
+    document.getElementById('kp-l3').textContent    = 'Group Key (AES-GCM-256)';
+    document.getElementById('kp-sess').textContent  = g.keyB64 ? g.keyB64.slice(0,24) + '…' : '—';
+    // Show member chips
+    document.getElementById('kp-members-sec').style.display = '';
+    var onlineSigIds = Object.values(contacts).filter(function(c){return c.online && c.sigId;}).map(function(c){return c.sigId;});
+    document.getElementById('kp-members-list').innerHTML = g.members.map(function(m) {
+      var isSelf = m.sigId === me.id;
+      var isOnline = isSelf || onlineSigIds.includes(m.sigId);
+      return '<div class="gmember-chip' + (isOnline ? ' online' : '') + '">' +
+        (isOnline ? '🟢' : '⚫') + ' ' + esc(m.name) + (isSelf ? ' (you)' : '') +
+      '</div>';
+    }).join('');
+
+  } else {
+    // ── 1:1 contact chat ──
+    var c = contacts[cid];
+    if (!c) return;
+    c.unread = 0;
+    var init = c.name.split(' ').map(function(w){return w[0];}).join('').toUpperCase().slice(0,2);
+    document.getElementById('ch-av').textContent      = init;
+    document.getElementById('ch-av').style.background = COLS[cid.charCodeAt(2) % COLS.length];
+    document.getElementById('ch-name').textContent    = c.name;
+    var e2pill = document.querySelector('.e2pill');
+    if (e2pill) e2pill.textContent = '🔒 E2EE';
+    document.querySelector('.abt.c') && (document.querySelector('.abt.c').style.display = '');
+    document.querySelector('.abt.v') && (document.querySelector('.abt.v').style.display = '');
+    var leaveBtn = document.getElementById('leave-grp-btn');
+    if (leaveBtn) leaveBtn.style.display = 'none';
+    var kbtn = document.querySelector('.abt.k');
+    if (kbtn) { kbtn.textContent = '🔑'; kbtn.title = 'Key Info'; kbtn.onclick = function(){ toggleKP(); }; }
+    // Kpanel: restore to fingerprint view
+    document.getElementById('kp-title').textContent = 'Encryption Info';
+    document.getElementById('kp-sub').textContent   = 'Verify fingerprints out-of-band.';
+    document.getElementById('kp-l1').textContent    = 'My Fingerprint';
+    document.getElementById('kp-me').textContent    = me.fp;
+    document.getElementById('kp-l2').style.display  = '';
+    document.getElementById('kp-peer').closest('.kp-sec').style.display = '';
+    document.getElementById('kp-peer').textContent  = c.fp    || '—';
+    document.getElementById('kp-l3').textContent    = 'Session Key (AES-GCM-256)';
+    document.getElementById('kp-sess').textContent  = c.sessB64 ? c.sessB64.slice(0,36) + '…' : '—';
+    document.getElementById('kp-members-sec').style.display = 'none';
+
+    if (c.sigId) sig.send(c.sigId, 'ping', { pubKey: me.pubB64, name: me.name });
+    else         sig.bcast('ping', { pubKey: me.pubB64, name: me.name });
+    updateChatSt();
+  }
+
+  renderMsgs(); renderContacts();
+  mobileOpenChat();
+  document.getElementById('minp').focus();
+}
+
+function updateChatSt() {
+  if (!activePeer) return;
+  if (activePeer.startsWith('g_')) {
+    var g = groups[activePeer];
+    if (!g) return;
+    var onlineCnt = g.members.filter(function(m) {
+      return m.sigId !== me.id && Object.values(contacts).some(function(c) { return c.sigId === m.sigId && c.online; });
+    }).length;
+    document.getElementById('ch-dot').style.color = onlineCnt ? 'var(--green)' : 'var(--dim)';
+    document.getElementById('ch-st').textContent  = g.members.length + ' members · ' + onlineCnt + ' online';
+  } else {
+    var c = contacts[activePeer];
+    if (!c) return;
+    document.getElementById('ch-dot').style.color = c.online ? 'var(--green)' : 'var(--dim)';
+    document.getElementById('ch-st').textContent  = c.online ? 'Online — E2EE Active' : 'Offline';
+  }
+}
+
+function fileIcon(mime) {
+  if (!mime) return '📄';
+  if (mime.startsWith('image/'))       return '🖼';
+  if (mime.startsWith('video/'))       return '🎬';
+  if (mime.startsWith('audio/'))       return '🎵';
+  if (mime.includes('pdf'))            return '📕';
+  if (mime.includes('zip') || mime.includes('rar') || mime.includes('7z')) return '🗜';
+  if (mime.includes('word') || mime.includes('document'))  return '📝';
+  if (mime.includes('sheet') || mime.includes('excel'))    return '📊';
+  if (mime.includes('presentation') || mime.includes('powerpoint')) return '📽';
+  return '📄';
+}
+function fmtSize(b) {
+  if (b < 1024)            return b + ' B';
+  if (b < 1024*1024)       return (b/1024).toFixed(1) + ' KB';
+  return (b/(1024*1024)).toFixed(1) + ' MB';
+}
+
+function renderMsgs() {
+  var box = document.getElementById('msgs');
+  // Resolve to either a contact or a group
+  var isGroup = activePeer && activePeer.startsWith('g_');
+  var c = isGroup ? groups[activePeer] : contacts[activePeer];
+  if (!c) { box.innerHTML = ''; return; }
+  if (!c.msgs.length) {
+    box.innerHTML = isGroup
+      ? '<div class="sysmsg">👥 Group E2EE · AES-GCM-256</div><div class="sysmsg">Messages are encrypted with the shared group key</div>'
+      : '<div class="sysmsg">🔒 AES-GCM-256 encrypted</div><div class="sysmsg">🔑 ECDH P-256 + HKDF-SHA-256</div>';
+    return;
+  }
+  var h = '<div class="sysmsg">🔒 End-to-end encrypted</div>';
+  c.msgs.forEach(function(m) {
+    var side = m.mine ? 'mine' : 'theirs';
+    if (m.type === 'file-tx' || m.type === 'file-rx') {
+      var isImg = m.mime && m.mime.startsWith('image/');
+      var isVid = m.mime && m.mime.startsWith('video/');
+      var isMedia = isImg || isVid;
+
+      if (isMedia && m.done && m.url) {
+        // ── Inline media bubble ──
+        var mediaSrc = esc(m.url);
+        var safeUrl  = esc(m.url||'');
+        var safeName = esc(m.name||'');
+        var mediaSrc = safeUrl;
+        var mediaEl  = isImg
+          ? '<img src="' + safeUrl + '" alt="' + safeName + '" loading="lazy" data-url="' + safeUrl + '" data-name="' + safeName + '" onclick="openLightbox(this.dataset.url,this.dataset.name,false)">'
+          : '<video src="' + safeUrl + '" controls playsinline preload="metadata" data-url="' + safeUrl + '" data-name="' + safeName + '" onclick="event.stopPropagation();openLightbox(this.dataset.url,this.dataset.name,true)"></video>';
+        var expandBtn = isImg
+          ? '<div class="media-overlay" data-url="' + safeUrl + '" data-name="' + safeName + '" onclick="openLightbox(this.dataset.url,this.dataset.name,false)"><span class="media-play">🔍</span></div>'
+          : '';
+        h += '<div class="mg ' + side + '">' +
+          '<div class="media-bubble">' + mediaEl + expandBtn + '<div class="media-lock">🔒 E2EE</div></div>' +
+          '<div class="mmeta"><span class="mlk">🔒</span><span>' + fmt(m.time) + '</span>' + (m.mine ? '<span>✓✓</span>' : '') + '</div>' +
+        '</div>';
+
+      } else if (isMedia && !m.done) {
+        // ── Media receiving/sending placeholder ──
+        var pct = m.progress || 0;
+        var lbl = (m.type === 'file-tx') ? 'Sending…' : 'Receiving…';
+        var mediaIcon = isImg ? '🖼' : '🎬';
+        h += '<div class="mg ' + side + '">' +
+          '<div class="media-recv">' +
+            '<div class="media-recv-icon">' + mediaIcon + '</div>' +
+            '<div class="media-recv-lbl">' + esc(m.name) + '</div>' +
+            '<div class="file-progress" id="fpr-' + m.xferId + '" style="display:block;width:160px"><div class="file-progress-bar" id="fpb-' + m.xferId + '" style="width:' + pct + '%"></div></div>' +
+            '<div class="media-recv-lbl">' + lbl + ' · 🔒 E2EE</div>' +
+          '</div>' +
+          '<div class="mmeta"><span class="mlk">🔒</span><span>' + fmt(m.time) + '</span>' + (m.mine ? '<span>✓✓</span>' : '') + '</div>' +
+        '</div>';
+
+      } else {
+        // ── Standard file bubble ──
+        var icon    = fileIcon(m.mime);
+        var dlBtn   = '';
+        var progBar = '';
+        if (m.error) {
+          dlBtn = '<button class="file-dl" disabled style="background:var(--red)">✕ Failed</button>';
+        } else if (m.type === 'file-tx') {
+          dlBtn = m.done
+            ? '<button class="file-dl" data-url="' + esc(m.url||'') + '" data-name="' + esc(m.name) + '" onclick="downloadBlob(this.dataset.url,this.dataset.name)">&#8595; Save</button>'
+            : '<button class="file-dl" disabled>Sending…</button>';
+          if (!m.done) progBar = '<div class="file-progress" id="fpr-' + m.xferId + '" style="display:block"><div class="file-progress-bar" id="fpb-' + m.xferId + '" style="width:' + (m.progress||0) + '%"></div></div>';
+        } else {
+          dlBtn = m.done
+            ? '<button class="file-dl" data-url="' + esc(m.url||'') + '" data-name="' + esc(m.name) + '" onclick="downloadBlob(this.dataset.url,this.dataset.name)">&#8595; Save</button>'
+            : '<button class="file-dl" disabled>Receiving…</button>';
+          if (!m.done) progBar = '<div class="file-progress" id="fpr-' + m.xferId + '"><div class="file-progress-bar" id="fpb-' + m.xferId + '"></div></div>';
+        }
+        h += '<div class="mg ' + side + '">' +
+          '<div class="file-bubble">' +
+            '<div class="file-icon">' + icon + '</div>' +
+            '<div class="file-info">' +
+              (isGroup && !m.mine && m.senderName ? '<div style="font-size:10px;color:var(--green);font-weight:600;margin-bottom:3px;font-family:var(--dis)">' + esc(m.senderName) + '</div>' : '') +
+              '<div class="file-name">' + esc(m.name) + '</div>' +
+              '<div class="file-size">🔒 E2EE · ' + fmtSize(m.size) + '</div>' +
+              progBar +
+            '</div>' +
+            dlBtn +
+          '</div>' +
+          '<div class="mmeta"><span class="mlk">🔒</span><span>' + fmt(m.time) + '</span>' + (m.mine ? '<span>✓✓</span>' : '') + '</div>' +
+        '</div>';
+      }
+    } else if (m.type === 'sysmsg') {
+      h += '<div class="sysmsg">' + esc(m.text) + '</div>';
+    } else if (m.type === 'voice-tx' || m.type === 'voice-rx') {
+      var isGroup = activePeer && activePeer.startsWith('g_');
+      var vnSender = (isGroup && !m.mine && m.senderName)
+        ? '<div style="font-size:10px;color:var(--green);font-weight:600;margin-bottom:4px;font-family:var(--dis)">' + esc(m.senderName) + '</div>'
+        : '';
+      if (m.done && m.url) {
+        // Rendered player — canvas drawn by JS after render
+        h += '<div class="mg ' + side + '">' +
+          vnSender +
+          '<div class="vn-bubble" data-vnid="' + esc(m.xferId) + '">' +
+            '<button class="vn-play" id="vnp-' + esc(m.xferId) + '" data-xferid="' + esc(m.xferId) + '" onclick="vnPlayPause(this.dataset.xferid)" data-url="' + esc(m.url) + '">▶</button>' +
+            '<div class="vn-right">' +
+              '<canvas class="vn-canvas" id="vnc-' + esc(m.xferId) + '" height="28"></canvas>' +
+              '<div class="vn-meta"><span class="vn-dur" id="vnd-' + esc(m.xferId) + '">' + (m.durStr||'—') + '</span><span class="vn-lock">🔒 E2EE</span></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="mmeta"><span class="mlk">🔒</span><span>' + fmt(m.time) + '</span>' + (m.mine ? '<span>✓✓</span>' : '') + '</div>' +
+        '</div>';
+      } else {
+        // Still transferring
+        var vnIcon = m.mine ? '⬆' : '⬇';
+        var pct = m.progress || 0;
+        h += '<div class="mg ' + side + '">' +
+          vnSender +
+          '<div class="vn-recv">' +
+            '<div style="font-size:22px;flex-shrink:0">🎙</div>' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="font-size:11px;color:var(--text);font-weight:600;margin-bottom:4px">Voice Note</div>' +
+              '<div class="file-progress" id="fpr-' + m.xferId + '" style="display:block"><div class="file-progress-bar" id="fpb-' + m.xferId + '" style="width:' + pct + '%"></div></div>' +
+              '<div class="vn-recv-lbl" style="margin-top:4px">' + (m.mine ? 'Sending…' : 'Receiving…') + ' · 🔒 E2EE</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="mmeta"><span class="mlk">🔒</span><span>' + fmt(m.time) + '</span>' + (m.mine ? '<span>✓✓</span>' : '') + '</div>' +
+        '</div>';
+      }
+    } else {
+      // Text bubble — show sender name in group chats
+      var isGroup = activePeer && activePeer.startsWith('g_');
+      var senderLine = (isGroup && !m.mine && m.sender)
+        ? '<div style="font-size:10px;color:var(--green);font-weight:600;margin-bottom:3px;font-family:var(--dis)">' + esc(m.sender) + '</div>'
+        : '';
+      h += '<div class="mg ' + side + '">' +
+        '<div class="bub">' + senderLine + esc(m.text) + '</div>' +
+        '<div class="mmeta"><span class="mlk">🔒</span><span>' + fmt(m.time) + '</span>' + (m.mine ? '<span>✓✓</span>' : '') + '</div>' +
+      '</div>';
+    }
+  });
+  box.innerHTML = h;
+  box.scrollTop = box.scrollHeight;
+  // Draw waveforms on voice note bubbles after DOM update
+  setTimeout(renderVoiceCanvases, 60);
+}
+
+function downloadBlob(url, name) {
+  var a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+}
+
+// ── MEDIA (photo/video) — same DataChannel pipeline as files ──
+function handleMediaSelect(input) {
+  var files = Array.from(input.files);
+  input.value = '';
+  if (!files.length) return;
+  if (!activePeer) return toast('Select a conversation first');
+  if (activePeer.startsWith('g_')) {
+    var g = groups[activePeer];
+    if (!g || !g.key) return toast('Group key not ready');
+    files.forEach(function(file) {
+      if (file.size > 500 * 1024 * 1024) return toast(file.name + ' too large (max 500 MB)');
+      sendGroupFile(file, g);
+    });
+    return;
+  }
+  var c = contacts[activePeer];
+  if (!c || !c.sharedKey) return toast('No shared key — wait for peer to come online');
+  if (!c.sigId)            return toast('Peer is offline');
+  files.forEach(function(file) {
+    if (file.size > 500 * 1024 * 1024) return toast(file.name + ' too large (max 500 MB)');
+    sendFile(file, c);
+  });
+}
+
+// ── LIGHTBOX ──
+var _lbName = '', _lbUrl = '';
+function openLightbox(url, name, isVideo) {
+  _lbUrl = url; _lbName = name;
+  var box = document.getElementById('lb-content');
+  box.innerHTML = isVideo
+    ? '<video src="' + url + '" controls autoplay playsinline style="max-width:92vw;max-height:82vh;border-radius:10px"></video>'
+    : '<img src="' + url + '" alt="' + esc(name) + '" style="max-width:92vw;max-height:82vh;border-radius:10px;object-fit:contain">';
+  document.getElementById('lightbox').classList.add('on');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('on');
+  document.getElementById('lb-content').innerHTML = '';
+  _lbUrl = ''; _lbName = '';
+}
+function lbDownload() {
+  if (_lbUrl) downloadBlob(_lbUrl, _lbName);
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLightbox(); });
+
+async function sendMsg() {
+  var inp  = document.getElementById('minp');
+  var text = inp.value.trim();
+  if (!text || !activePeer) return;
+  inp.value = ''; autoR(inp);
+
+  if (activePeer.startsWith('g_')) {
+    // ── Group message ──
+    var g = groups[activePeer];
+    if (!g || !g.key) return toast('Group key not ready');
+    try {
+      var enc = await E2EE.encrypt(g.key, text);
+      sig.sendGroup(activePeer, 'gmsg', { iv: enc.iv, ct: enc.ct, senderName: me.name });
+      g.msgs.push({ text: text, time: Date.now(), mine: true });
+      renderMsgs(); renderContacts();
+    } catch(e) { toast('Encrypt failed: ' + e.message); }
+  } else {
+    // ── 1:1 message ──
+    var c = contacts[activePeer];
+    if (!c || !c.sharedKey) return toast('No shared key yet — wait for peer to come online');
+    if (!c.sigId)            return toast('Peer not yet online — wait a moment');
+    try {
+      var enc = await E2EE.encrypt(c.sharedKey, text);
+      sig.send(c.sigId, 'msg', enc);
+      c.msgs.push({ text: text, time: Date.now(), mine: true });
+      renderMsgs(); renderContacts();
+    } catch(e) { toast('Encrypt failed: ' + e.message); }
+  }
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+}
+
+// ================================================================
+// VOICE NOTES
+// Records audio via MediaRecorder, shows live waveform, lets user
+// preview before sending, then sends via the same WebRTC DataChannel
+// pipeline as files (AES-GCM-256 encrypted).
+// ================================================================
+var vn = {
+  recorder:    null,
+  stream:      null,
+  chunks:      [],
+  timerIv:     null,
+  secs:        0,
+  animFrame:   null,
+  analyser:    null,
+  audioCtx:    null,
+  blob:        null,         // recorded blob, waiting to send
+  waveData:    null,         // Float32Array of normalised amplitude per pixel
+  previewAudio:null,         // Audio element for preview playback
+  previewPlaying: false
+};
+
+// Active voice note players: xferId → { audio, playing, waveData }
+var vnPlayers = {};
+
+function fmtDur(s) {
+  s = Math.round(s);
+  return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+}
+
+// ── Draw waveform bars onto a canvas ──
+function drawWave(canvas, waveData, progress) {
+  if (!canvas || !waveData) return;
+  var W = canvas.offsetWidth || 200;
+  var H = canvas.offsetHeight || 28;
+  canvas.width  = W;
+  canvas.height = H;
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  var bars = waveData.length;
+  var bw   = Math.max(2, Math.floor(W / bars) - 1);
+  var gap  = Math.max(1, Math.floor(W / bars) - bw);
+  var prog = progress || 0; // 0..1
+  for (var i = 0; i < bars; i++) {
+    var amp = waveData[i];
+    var h   = Math.max(3, Math.round(amp * (H - 4)));
+    var x   = i * (bw + gap);
+    var played = (i / bars) < prog;
+    ctx.fillStyle = played ? 'var(--green)' : 'rgba(0,232,160,0.28)';
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, (H-h)/2, bw, h, 2) : ctx.rect(x, (H-h)/2, bw, h);
+    ctx.fill();
+  }
+}
+
+// ── Sample live mic for live waveform on recording canvas ──
+function drawLiveWave() {
+  if (!vn.analyser) return;
+  var canvas = document.getElementById('vrec-wave');
+  if (!canvas) return;
+  var W = canvas.offsetWidth || 200;
+  var H = 36;
+  canvas.width = W; canvas.height = H;
+  var buf = new Uint8Array(vn.analyser.frequencyBinCount);
+  vn.analyser.getByteTimeDomainData(buf);
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = 'var(--red)';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  var step = W / buf.length;
+  for (var i = 0; i < buf.length; i++) {
+    var y = (buf[i] / 128.0) * (H / 2);
+    i === 0 ? ctx.moveTo(0, y) : ctx.lineTo(i * step, y);
+  }
+  ctx.stroke();
+  vn.animFrame = requestAnimationFrame(drawLiveWave);
+}
+
+// ── Build a compressed waveform from an AudioBuffer ──
+async function buildWaveData(blob, bars) {
+  bars = bars || 60;
+  try {
+    var actx = new (window.AudioContext || window.webkitAudioContext)();
+    var ab    = await blob.arrayBuffer();
+    var audio = await actx.decodeAudioData(ab);
+    var raw   = audio.getChannelData(0);
+    var step  = Math.floor(raw.length / bars);
+    var out   = new Float32Array(bars);
+    for (var i = 0; i < bars; i++) {
+      var sum = 0;
+      for (var j = 0; j < step; j++) sum += Math.abs(raw[i * step + j] || 0);
+      out[i] = sum / step;
+    }
+    // Normalise to 0..1
+    var mx = out.reduce(function(a,b){return Math.max(a,b);}, 0.001);
+    for (var i = 0; i < bars; i++) out[i] = out[i] / mx;
+    actx.close();
+    return out;
+  } catch(e) { return null; }
+}
+
+// Summarise waveData as base64 for embedding in the message object
+function waveToB64(waveData) {
+  if (!waveData) return null;
+  return btoa(String.fromCharCode.apply(null,
+    new Uint8Array(waveData.buffer || Float32Array.from(waveData).buffer)));
+}
+function b64ToWave(b64) {
+  if (!b64) return null;
+  var u8 = Uint8Array.from(atob(b64), function(c){return c.charCodeAt(0);});
+  return new Float32Array(u8.buffer);
+}
+
+// ── Start / stop / cancel recording ──
+async function toggleVoiceRec() {
+  if (!activePeer) return toast('Select a conversation first');
+  if (vn.recorder && vn.recorder.state === 'recording') {
+    stopVoiceRec(); return;
+  }
+  if (!window.isSecureContext) return showMediaPermissionHelp('insecure');
+  if (!navigator.mediaDevices) return showMediaPermissionHelp('unsupported');
+
+  try {
+    vn.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch(e) {
+    showMediaPermissionHelp(e.name); return;
+  }
+
+  // Web Audio for live waveform
+  vn.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  var src = vn.audioCtx.createMediaStreamSource(vn.stream);
+  vn.analyser = vn.audioCtx.createAnalyser();
+  vn.analyser.fftSize = 256;
+  src.connect(vn.analyser);
+
+  // Pick best supported format
+  var mime = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4','audio/mpeg']
+    .find(function(t){return MediaRecorder.isTypeSupported(t);}) || '';
+
+  vn.chunks = [];
+  vn.recorder = new MediaRecorder(vn.stream, mime ? {mimeType: mime} : {});
+  vn.recorder.ondataavailable = function(e){ if(e.data.size>0) vn.chunks.push(e.data); };
+  vn.recorder.onstop = onRecorderStop;
+  vn.recorder.start(100);
+
+  // Timer
+  vn.secs = 0;
+  vn.timerIv = setInterval(function(){
+    vn.secs++;
+    var el = document.getElementById('vrec-timer');
+    if (el) el.textContent = fmtDur(vn.secs);
+    if (vn.secs >= 120) stopVoiceRec(); // 2-min cap
+  }, 1000);
+
+  document.getElementById('vrec-bar').classList.add('on');
+  document.getElementById('vbtn').classList.add('recording');
+  // Hide normal ibar content while recording
+  document.getElementById('minp').style.display = 'none';
+  document.getElementById('sbtn').style.display = 'none';
+  document.getElementById('vbtn').style.display = 'none';
+
+  drawLiveWave();
+}
+
+function stopVoiceRec() {
+  if (!vn.recorder || vn.recorder.state === 'inactive') return;
+  vn.recorder.stop();
+  clearInterval(vn.timerIv);
+  cancelAnimationFrame(vn.animFrame);
+  vn.stream.getTracks().forEach(function(t){t.stop();});
+  if (vn.audioCtx) { vn.audioCtx.close(); vn.audioCtx = null; }
+}
+
+function cancelVoiceRec() {
+  if (vn.recorder && vn.recorder.state !== 'inactive') {
+    vn.recorder.onstop = null; // prevent preview
+    vn.recorder.stop();
+  }
+  clearInterval(vn.timerIv);
+  cancelAnimationFrame(vn.animFrame);
+  if (vn.stream) vn.stream.getTracks().forEach(function(t){t.stop();});
+  if (vn.audioCtx) { vn.audioCtx.close(); vn.audioCtx = null; }
+  vn.blob = null; vn.recorder = null;
+  resetVoiceUI();
+}
+
+async function onRecorderStop() {
+  var mime = vn.recorder.mimeType || 'audio/webm';
+  vn.blob = new Blob(vn.chunks, {type: mime});
+  vn.recorder = null;
+
+  document.getElementById('vrec-bar').classList.remove('on');
+  document.getElementById('vbtn').classList.remove('recording');
+
+  if (vn.blob.size < 500) { resetVoiceUI(); return toast('Recording too short'); }
+
+  // Build waveform data for preview
+  vn.waveData = await buildWaveData(vn.blob, 60);
+
+  // Show preview bar
+  document.getElementById('vpreview-bar').classList.add('on');
+  document.getElementById('vpreview-dur').textContent = fmtDur(vn.secs);
+
+  // Draw preview waveform
+  var canvas = document.getElementById('vpreview-wave');
+  setTimeout(function(){drawWave(canvas, vn.waveData, 0);}, 50);
+
+  // Set up preview audio
+  if (vn.previewAudio) { vn.previewAudio.pause(); vn.previewAudio = null; }
+  vn.previewAudio = new Audio(URL.createObjectURL(vn.blob));
+  vn.previewAudio.onended = function(){
+    vn.previewPlaying = false;
+    document.getElementById('vpreview-play').textContent = '▶';
+    drawWave(document.getElementById('vpreview-wave'), vn.waveData, 0);
+  };
+  vn.previewAudio.ontimeupdate = function(){
+    var p = vn.previewAudio.duration ? vn.previewAudio.currentTime / vn.previewAudio.duration : 0;
+    document.getElementById('vpreview-dur').textContent = fmtDur(vn.previewAudio.currentTime);
+    drawWave(document.getElementById('vpreview-wave'), vn.waveData, p);
+  };
+}
+
+function previewPlayPause() {
+  if (!vn.previewAudio) return;
+  if (vn.previewPlaying) {
+    vn.previewAudio.pause();
+    vn.previewPlaying = false;
+    document.getElementById('vpreview-play').textContent = '▶';
+  } else {
+    vn.previewAudio.play();
+    vn.previewPlaying = true;
+    document.getElementById('vpreview-play').textContent = '⏸';
+  }
+}
+
+function discardVoiceNote() {
+  if (vn.previewAudio) { vn.previewAudio.pause(); vn.previewAudio = null; }
+  vn.blob = null; vn.waveData = null;
+  resetVoiceUI();
+}
+
+function resetVoiceUI() {
+  document.getElementById('vrec-bar').classList.remove('on');
+  document.getElementById('vpreview-bar').classList.remove('on');
+  document.getElementById('minp').style.display = '';
+  document.getElementById('sbtn').style.display = '';
+  document.getElementById('vbtn').style.display = '';
+  document.getElementById('vbtn').classList.remove('recording');
+}
+
+async function sendVoiceNote() {
+  if (!vn.blob) return;
+  if (!activePeer) return;
+
+  var blob      = vn.blob;
+  var waveData  = vn.waveData;
+  var durStr    = fmtDur(vn.secs);
+  var waveB64   = waveToB64(waveData);
+  var ext       = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+  var filename  = 'voice-note-' + Date.now() + '.' + ext;
+
+  if (vn.previewAudio) { vn.previewAudio.pause(); vn.previewAudio = null; }
+  discardVoiceNote();
+
+  // Wrap blob as a File so sendFile() / sendGroupFile() can handle it
+  var file = new File([blob], filename, {type: blob.type});
+  file._isVoiceNote = true;
+  file._durStr      = durStr;
+  file._waveB64     = waveB64;
+
+  if (activePeer.startsWith('g_')) {
+    var g = groups[activePeer];
+    if (!g || !g.key) return toast('Group key not ready');
+    sendGroupFile(file, g);
+  } else {
+    var c = contacts[activePeer];
+    if (!c || !c.sharedKey) return toast('No shared key yet');
+    if (!c.sigId) return toast('Peer is offline');
+    sendFile(file, c);
+  }
+}
+
+// ── After renderMsgs, draw waveforms on visible voice note canvases ──
+function renderVoiceCanvases() {
+  document.querySelectorAll('.vn-canvas').forEach(function(canvas) {
+    var xferId = canvas.id.replace('vnc-', '');
+    var player = vnPlayers[xferId];
+    var waveData = player ? player.waveData : null;
+    if (!waveData) return;
+    var progress = player && player.audio && player.audio.duration
+      ? player.audio.currentTime / player.audio.duration : 0;
+    drawWave(canvas, waveData, progress);
+  });
+}
+
+// ── Play / pause a received (or sent) voice note bubble ──
+function vnPlayPause(xferId) {
+  // Find message across contacts and groups to get url + waveB64
+  var msg = null;
+  Object.values(contacts).forEach(function(c){
+    c.msgs.forEach(function(m){ if(m.xferId===xferId) msg=m; });
+  });
+  if (!msg) Object.values(groups).forEach(function(g){
+    g.msgs.forEach(function(m){ if(m.xferId===xferId) msg=m; });
+  });
+  if (!msg || !msg.url) return;
+
+  // Init player if needed
+  if (!vnPlayers[xferId]) {
+    var wave = msg.waveB64 ? b64ToWave(msg.waveB64) : null;
+    var audio = new Audio(msg.url);
+    vnPlayers[xferId] = { audio: audio, playing: false, waveData: wave };
+    audio.onended = function(){
+      vnPlayers[xferId].playing = false;
+      var btn = document.getElementById('vnp-' + xferId);
+      if (btn) btn.textContent = '▶';
+      drawWave(document.getElementById('vnc-' + xferId), wave, 0);
+    };
+    audio.ontimeupdate = function(){
+      var p = audio.duration ? audio.currentTime / audio.duration : 0;
+      var dur = document.getElementById('vnd-' + xferId);
+      if (dur) dur.textContent = fmtDur(audio.currentTime);
+      drawWave(document.getElementById('vnc-' + xferId), wave, p);
+    };
+  }
+
+  var player = vnPlayers[xferId];
+  var btn    = document.getElementById('vnp-' + xferId);
+
+  if (player.playing) {
+    player.audio.pause();
+    player.playing = false;
+    if (btn) btn.textContent = '▶';
+  } else {
+    // Pause any other playing voice notes
+    Object.keys(vnPlayers).forEach(function(k){
+      if (k !== xferId && vnPlayers[k].playing) {
+        vnPlayers[k].audio.pause(); vnPlayers[k].playing = false;
+        var ob = document.getElementById('vnp-' + k);
+        if (ob) ob.textContent = '▶';
+      }
+    });
+    player.audio.play();
+    player.playing = true;
+    if (btn) btn.textContent = '⏸';
+  }
+}
+
+// ================================================================
+// GROUP CHAT
+// ================================================================
+function openGroupModal() {
+  // Populate member checkboxes — only contacts with a sigId (ever been online)
+  var opts = document.getElementById('grp-member-opts');
+  var onlineContacts = Object.values(contacts).filter(function(c) { return c.sigId; });
+  if (!onlineContacts.length) {
+    opts.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px;text-align:center">No contacts online yet. Wait for contacts to come online before creating a group.</div>';
+  } else {
+    opts.innerHTML = onlineContacts.map(function(c) {
+      var dot = c.online ? '<span style="color:var(--green)">●</span>' : '<span style="color:var(--dim)">●</span>';
+      return '<label class="member-opt' + (c.online ? ' online' : '') + '" style="display:flex">' +
+        '<input type="checkbox" value="' + esc(c.id) + '" style="margin-right:8px;accent-color:var(--green)">' +
+        '<div>' +
+          '<div class="member-opt-name">' + esc(c.name) + ' ' + dot + '</div>' +
+          '<div class="member-opt-status">@' + esc(c.sigId||'offline') + '</div>' +
+        '</div>' +
+      '</label>';
+    }).join('');
+  }
+  document.getElementById('grp-name-inp').value = '';
+  openSM('group-modal');
+}
+
+async function createGroup() {
+  var name = document.getElementById('grp-name-inp').value.trim();
+  if (!name) return toast('Enter a group name');
+
+  var checked = Array.from(document.querySelectorAll('#grp-member-opts input:checked'));
+  if (!checked.length) return toast('Select at least one member');
+
+  var memberContacts = checked.map(function(cb) { return contacts[cb.value]; }).filter(Boolean);
+  if (!memberContacts.length) return toast('Selected contacts not found');
+
+  // Generate fresh group key
+  var gkey, gkeyB64;
+  try {
+    gkey    = await E2EE.genGroupKey();
+    gkeyB64 = await E2EE.exportGroupKey(gkey);
+  } catch(e) { return toast('Key generation failed: ' + e.message); }
+
+  var groupId   = 'g_' + Math.random().toString(36).slice(2,12) + Date.now().toString(36);
+  var memberList = memberContacts.map(function(c) { return { sigId: c.sigId, name: c.name }; });
+  // Add self to member list
+  memberList.unshift({ sigId: me.id, name: me.name });
+
+  // Store group locally
+  groups[groupId] = {
+    id: groupId, name: name,
+    members: memberList,
+    key: gkey, keyB64: gkeyB64,
+    msgs: [], unread: 0,
+    creator: me.id
+  };
+  sig.subscribeGroup(groupId);
+
+  // Send invite to each member — group key encrypted with their pairwise shared key
+  var failedMembers = [];
+  for (var i = 0; i < memberContacts.length; i++) {
+    var mc = memberContacts[i];
+    if (!mc.sharedKey || !mc.sigId) { failedMembers.push(mc.name); continue; }
+    try {
+      var encKey = await E2EE.encrypt(mc.sharedKey, gkeyB64);
+      sig.send(mc.sigId, 'group-invite', {
+        groupId:   groupId,
+        groupName: name,
+        members:   memberList,
+        creator:   me.id,
+        kiv:       encKey.iv,
+        kct:       encKey.ct
+      });
+    } catch(e) { failedMembers.push(mc.name); }
+  }
+
+  closeSM('group-modal');
+  renderContacts();
+  openChat(groupId);
+
+  if (failedMembers.length) {
+    toast('Group created. Could not reach: ' + failedMembers.join(', '));
+  } else {
+    toast('👥 Group "' + name + '" created — ' + memberContacts.length + ' members invited');
+  }
+}
+
+function openAddMember() {
+  if (!activePeer || !activePeer.startsWith('g_')) return;
+  var g = groups[activePeer];
+  if (!g) return;
+  var existingSigIds = g.members.map(function(m) { return m.sigId; });
+  var eligible = Object.values(contacts).filter(function(c) {
+    return c.sigId && !existingSigIds.includes(c.sigId);
+  });
+  var opts = document.getElementById('addmember-opts');
+  if (!eligible.length) {
+    opts.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px;text-align:center">All your contacts are already in this group, or no contacts are online.</div>';
+  } else {
+    opts.innerHTML = eligible.map(function(c) {
+      var dot = c.online ? '<span style="color:var(--green)">●</span>' : '<span style="color:var(--dim)">●</span>';
+      return '<label class="member-opt' + (c.online ? ' online' : '') + '" style="display:flex">' +
+        '<input type="checkbox" value="' + esc(c.id) + '" style="margin-right:8px;accent-color:var(--green)">' +
+        '<div><div class="member-opt-name">' + esc(c.name) + ' ' + dot + '</div>' +
+        '<div class="member-opt-status">@' + esc(c.sigId) + '</div></div>' +
+      '</label>';
+    }).join('');
+  }
+  openSM('addmember-modal');
+}
+
+async function addMembersToGroup() {
+  if (!activePeer || !activePeer.startsWith('g_')) return;
+  var g = groups[activePeer];
+  if (!g) return;
+  var checked = Array.from(document.querySelectorAll('#addmember-opts input:checked'));
+  if (!checked.length) return toast('Select at least one contact');
+  var newContacts = checked.map(function(cb) { return contacts[cb.value]; }).filter(Boolean);
+
+  for (var i = 0; i < newContacts.length; i++) {
+    var mc = newContacts[i];
+    if (!mc.sharedKey || !mc.sigId) continue;
+    try {
+      var encKey = await E2EE.encrypt(mc.sharedKey, g.keyB64);
+      var newMember = { sigId: mc.sigId, name: mc.name };
+      sig.send(mc.sigId, 'group-invite', {
+        groupId:   g.id,
+        groupName: g.name,
+        members:   g.members.concat([newMember]),
+        creator:   g.creator,
+        kiv:       encKey.iv,
+        kct:       encKey.ct
+      });
+      // Notify existing members
+      sig.sendGroup(g.id, 'group-member-added', { groupId: g.id, member: newMember });
+      g.members.push(newMember);
+      g.msgs.push({ type:'sysmsg', text: mc.name + ' was added to the group', time: Date.now() });
+    } catch(e) { toast('Could not add ' + mc.name); }
+  }
+  closeSM('addmember-modal');
+  renderMsgs(); renderContacts();
+  toast('Members added');
+}
+
+function leaveGroup() {
+  if (!activePeer || !activePeer.startsWith('g_')) return;
+  var g = groups[activePeer];
+  if (!g) return;
+  if (!confirm('Leave "' + g.name + '"? You will lose access to the group key and messages.')) return;
+  sig.sendGroup(g.id, 'group-member-left', { groupId: g.id, sigId: me.id, name: me.name });
+  delete groups[activePeer];
+  activePeer = null;
+  // Hide leave btn, restore call btns
+  var leaveBtn = document.getElementById('leave-grp-btn');
+  if (leaveBtn) leaveBtn.style.display = 'none';
+  document.querySelector('.abt.c') && (document.querySelector('.abt.c').style.display = '');
+  document.querySelector('.abt.v') && (document.querySelector('.abt.v').style.display = '');
+  document.getElementById('chat-panel').style.display = 'none';
+  document.getElementById('chat-empty').style.display = 'flex';
+  renderContacts();
+  toast('Left the group');
+}
+
+// ================================================================
+// ENCRYPTED FILE TRANSFER
+// Chunks: 90 KB each (base64 ~120 KB after encoding — safe under MQTT 256 KB limit)
+// Each chunk is independently AES-GCM-256 encrypted with a fresh IV
+// ================================================================
+
+function handleFileSelect(input) {
+  var files = Array.from(input.files);
+  input.value = '';
+  if (!files.length) return;
+  if (!activePeer) return toast('Select a conversation first');
+  if (activePeer.startsWith('g_')) {
+    var g = groups[activePeer];
+    if (!g || !g.key) return toast('Group key not ready');
+    files.forEach(function(file) {
+      if (file.size > 50 * 1024 * 1024) return toast(file.name + ' is too large (max 50 MB)');
+      sendGroupFile(file, g);
+    });
+    return;
+  }
+  var c = contacts[activePeer];
+  if (!c || !c.sharedKey) return toast('No shared key — wait for peer to come online');
+  if (!c.sigId)            return toast('Peer is offline');
+  files.forEach(function(file) {
+    if (file.size > 50 * 1024 * 1024) return toast(file.name + ' is too large (max 50 MB)');
+    sendFile(file, c);
+  });
+}
+
+// ================================================================
+// ENCRYPTED FILE TRANSFER — WebRTC DataChannel
+// Signaling: tiny offer/answer/ICE go over MQTT
+// Data: file bytes travel P2P over DTLS-encrypted DataChannel
+//       + AES-GCM-256 app-layer encryption on top (double-encrypted)
+// ================================================================
+
+var CHUNK_BYTES = 64 * 1024;
+var fileXfers   = {};
+var _fileIcePre = {};  // Pre-buffer: xferId → [candidates] for ICE arriving before acceptFileOffer finishes
+
+
+var FILE_ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  { urls: 'turn:global.relay.metered.ca:80',  username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:global.relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:global.relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turns:global.relay.metered.ca:443',username: 'openrelayproject', credential: 'openrelayproject' }
+];
+
+function closeFileXfer(xferId) {
+  var xf = fileXfers[xferId];
+  if (!xf) return;
+  try { if (xf.dc) xf.dc.close(); } catch(e) {}
+  try { if (xf.pc) xf.pc.close(); } catch(e) {}
+  delete fileXfers[xferId];
+  delete _fileIcePre[xferId];
+}
+
+// Safe Uint8Array → base64 (no apply() stack-overflow on large arrays)
+function u8ToB64(u8) {
+  var s = '', B = 8192;
+  for (var i = 0; i < u8.length; i += B)
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + B));
+  return btoa(s);
+}
+
+// ── SENDER SIDE ──
+async function sendFile(file, c) {
+  if (!c.sigId) { return toast('Peer is offline'); }
+  if (!c.sharedKey) { return toast('No encryption key yet'); }
+  if (!sig || !sig.client || !sig.client.connected) { return toast('Not connected to network'); }
+
+  var xferId = Math.random().toString(36).slice(2,12) + Date.now().toString(36);
+  var total  = Math.ceil(file.size / CHUNK_BYTES) || 1;
+
+  var isVN   = !!file._isVoiceNote;
+  var msgType = isVN ? 'voice-tx' : 'file-tx';
+  var msgIdx = c.msgs.length;
+  c.msgs.push({ type:msgType, xferId:xferId, name:file.name, mime:file.type,
+                size:file.size, mine:true, time:Date.now(), done:false, progress:0,
+                durStr: file._durStr||null, waveB64: file._waveB64||null });
+  renderMsgs(); renderContacts();
+
+  var pc = new RTCPeerConnection({ iceServers: FILE_ICE_SERVERS, bundlePolicy: "max-bundle", rtcpMuxPolicy: "require" });
+  var dc = pc.createDataChannel('file', { ordered: true });
+  dc.binaryType = 'arraybuffer';
+
+  fileXfers[xferId] = { pc:pc, dc:dc, msgIdx:msgIdx, c:c, file:file,
+                        encKey: c.sharedKey, iceBuf:[], total:total, xferId:xferId };
+
+  pc.onicecandidate = function(e) {
+    if (e.candidate) {
+          sig.send(c.sigId, 'file-dc-ice', { xferId:xferId, c:e.candidate.toJSON() });
+    } else {
+        }
+  };
+  pc.oniceconnectionstatechange = function() { };
+  pc.onconnectionstatechange = function() {
+      if (pc.connectionState === 'failed') { toast('File transfer connection failed'); closeFileXfer(xferId); }
+  };
+
+  dc.onopen  = function() { doSendFile(xferId); };
+  dc.onclose = function() { };
+  dc.onerror = function(e) { toast('DataChannel error'); closeFileXfer(xferId); };
+
+  try {
+    var offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+  
+    var metaEnc = await E2EE.encrypt(c.sharedKey,
+      JSON.stringify({ name:file.name, mime:file.type||'application/octet-stream', size:file.size, total:total,
+        isVoiceNote: file._isVoiceNote||false, durStr: file._durStr||null, waveB64: file._waveB64||null }));
+  
+    sig.send(c.sigId, 'file-dc-offer', {
+      xferId: xferId,
+      offer:  { type: pc.localDescription.type, sdp: pc.localDescription.sdp },
+      iv: metaEnc.iv, ct: metaEnc.ct
+    });
+    } catch(e) {
+      toast('File offer failed: ' + e.message);
+    closeFileXfer(xferId);
+    c.msgs.splice(msgIdx, 1);
+    renderMsgs();
+  }
+}
+
+// ── GROUP FILE SENDER ──
+// Creates one WebRTC DataChannel per member; all use the group key
+async function sendGroupFile(file, g) {
+  if (!sig || !sig.client || !sig.client.connected) return toast('Not connected to network');
+  if (!g.key) return toast('Group key not ready');
+
+  // Find online members we have a pairwise connection to (needed to route WebRTC signaling)
+  var recipients = g.members.filter(function(m) {
+    if (m.sigId === me.id) return false;
+    // Must have a contact with this sigId so we can send WebRTC signals
+    return Object.values(contacts).some(function(c) { return c.sigId === m.sigId && c.sigId; });
+  });
+
+  if (!recipients.length) return toast('No reachable members online — wait for members to come online');
+
+  var baseXferId = Math.random().toString(36).slice(2,12) + Date.now().toString(36);
+  var total      = Math.ceil(file.size / CHUNK_BYTES) || 1;
+
+  // Push ONE bubble into the group msgs array
+  var msgIdx = g.msgs.length;
+  var isVNg   = !!file._isVoiceNote;
+  g.msgs.push({ type: isVNg ? 'voice-tx' : 'file-tx', xferId:baseXferId, name:file.name, mime:file.type||'',
+                size:file.size, mine:true, time:Date.now(), done:false, progress:0,
+                senderName: me.name, durStr: file._durStr||null, waveB64: file._waveB64||null });
+  if (activePeer === g.id) { renderMsgs(); renderContacts(); }
+
+  // Encrypt metadata once with group key
+  var metaStr = JSON.stringify({ name:file.name, mime:file.type||'application/octet-stream', size:file.size, total:total, isVoiceNote: file._isVoiceNote||false, durStr: file._durStr||null, waveB64: file._waveB64||null });
+  var metaEnc;
+  try { metaEnc = await E2EE.encrypt(g.key, metaStr); }
+  catch(e) { return toast('Meta encrypt failed: ' + e.message); }
+
+  var sentCount = 0;
+  recipients.forEach(function(member, memberIdx) {
+    var memberXferId = baseXferId + '_m' + memberIdx;
+    var pc = new RTCPeerConnection({ iceServers: FILE_ICE_SERVERS, bundlePolicy: "max-bundle", rtcpMuxPolicy: "require" });
+    var dc = pc.createDataChannel('file', { ordered: true });
+    dc.binaryType = 'arraybuffer';
+
+    fileXfers[memberXferId] = {
+      pc: pc, dc: dc,
+      file: file, encKey: g.key,
+      msgIdx: msgIdx, total: total,
+      baseXferId: baseXferId, memberIdx: memberIdx,
+      groupId: g.id, memberSigId: member.sigId,
+      iceBuf: [], xferId: memberXferId,
+      memberDone: false
+    };
+
+    pc.onicecandidate = function(e) {
+      if (e.candidate) sig.send(member.sigId, 'file-dc-ice', { xferId:memberXferId, c:e.candidate.toJSON() });
+    };
+    pc.onconnectionstatechange = function() {
+      if (pc.connectionState === 'failed') {
+        closeFileXfer(memberXferId);
+        toast('Connection to ' + member.name + ' failed');
+      }
+    };
+    dc.onopen  = function() { doSendFile(memberXferId); };
+    dc.onerror = function() { closeFileXfer(memberXferId); };
+
+    pc.createOffer().then(function(offer) {
+      return pc.setLocalDescription(offer).then(function() {
+        sig.send(member.sigId, 'file-dc-offer', {
+          xferId:    memberXferId,
+          baseXferId: baseXferId,
+          groupId:   g.id,
+          groupName: g.name,
+          offer:     { type: pc.localDescription.type, sdp: pc.localDescription.sdp },
+          iv: metaEnc.iv, ct: metaEnc.ct
+        });
+        sentCount++;
+      });
+    }).catch(function(e) {
+      toast('Offer to ' + member.name + ' failed: ' + e.message);
+      closeFileXfer(memberXferId);
+    });
+  });
+}
+
+// Called when DataChannel opens — reads & sends file in AES-GCM encrypted chunks
+async function doSendFile(xferId) {
+  var xf = fileXfers[xferId];
+  if (!xf) return;
+  var dc = xf.dc, file = xf.file;
+  var total = xf.total;
+  // encKey: group key for group transfers, pairwise sharedKey for 1:1
+  var encKey = xf.encKey || (xf.c && xf.c.sharedKey);
+  if (!encKey) return;
+
+  var buf = await file.arrayBuffer();
+  var raw = new Uint8Array(buf);
+
+  for (var seq = 0; seq < total; seq++) {
+    if (!fileXfers[xferId]) return;  // aborted
+
+    var slice    = raw.subarray(seq * CHUNK_BYTES, (seq + 1) * CHUNK_BYTES);
+    var b64chunk = u8ToB64(slice);
+
+    var enc;
+    try { enc = await E2EE.encrypt(encKey, b64chunk); }
+    catch(e) {
+      toast('Encryption error: ' + e.message);
+      if (xf.c) sig.send(xf.c.sigId, 'file-dc-abort', { xferId:xferId });
+      closeFileXfer(xferId);
+      return;
+    }
+
+    // Wait if DataChannel buffer is filling up (flow control)
+    while (dc.bufferedAmount > 1024 * 1024) {
+      await new Promise(function(r) { setTimeout(r, 50); });
+      if (!fileXfers[xferId]) return;
+    }
+
+    dc.send(JSON.stringify({ seq:seq, iv:enc.iv, ct:enc.ct }));
+
+    // Update progress — for group transfers, update via baseXferId
+    var pct = Math.round((seq + 1) / total * 100);
+    var trackId = xf.baseXferId || xferId;
+    var bar = document.getElementById('fpb-' + trackId);
+    if (bar) bar.style.width = pct + '%';
+    // Update the right msgs array
+    if (xf.groupId && groups[xf.groupId]) {
+      var gm = groups[xf.groupId].msgs[xf.msgIdx];
+      if (gm) gm.progress = pct;
+    } else if (xf.c) {
+      if (xf.c.msgs[xf.msgIdx]) xf.c.msgs[xf.msgIdx].progress = pct;
+    }
+  }
+
+  // Signal end of transfer
+  dc.send(JSON.stringify({ done:true }));
+
+  // Mark sender bubble done
+  var localUrl = URL.createObjectURL(file);
+  var trackId = xf.baseXferId || xferId;
+  if (xf.groupId && groups[xf.groupId]) {
+    // Mark this member as done; mark bubble done when ALL members complete
+    var g = groups[xf.groupId];
+    if (xf.memberIdx !== undefined) {
+      xf.memberDone = true;
+      // Check if all member transfers for this file are done
+      var allDone = Object.keys(fileXfers).every(function(k) {
+        var t = fileXfers[k];
+        return t.baseXferId !== xf.baseXferId || t.memberDone;
+      });
+      if (allDone) {
+        var gm = g.msgs[xf.msgIdx];
+        if (gm) { gm.done = true; gm.url = localUrl; gm.progress = 100; }
+        if (activePeer === xf.groupId) renderMsgs();
+        setTimeout(renderVoiceCanvases, 60);
+        toast(xf.file._isVoiceNote ? '🎙 Voice note sent to group' : '📎 ' + file.name + ' sent to group');
+      }
+    }
+  } else if (xf.c) {
+    var m = xf.c.msgs[xf.msgIdx];
+    if (m) { m.done = true; m.url = localUrl; m.progress = 100; }
+    renderMsgs();
+    setTimeout(renderVoiceCanvases, 60);
+    toast(xf.file._isVoiceNote ? '🎙 Voice note sent' : '📎 ' + file.name + ' sent');
+  }
+
+  setTimeout(function() { closeFileXfer(xferId); }, 3000);
+}
+
+// ── RECEIVER SIDE ──
+async function acceptFileOffer(data, c, cid) {
+  var xferId  = data.xferId;
+  var groupId = data.groupId || null;
+  var g       = groupId ? groups[groupId] : null;
+
+  // Decide which key to use and which msgs array to push the bubble into
+  var decKey  = g ? g.key : (c && c.sharedKey);
+  if (!decKey) return;
+
+  // Decrypt metadata
+  var meta;
+  try {
+    var metaJson = await E2EE.decrypt(decKey, { iv:data.iv, ct:data.ct });
+    meta = JSON.parse(metaJson);
+  } catch(e) { return; }
+
+  // Use baseXferId for the bubble so group sender's baseXferId matches
+  var bubbleId = data.baseXferId || xferId;
+
+  // Push receive bubble — into group.msgs or c.msgs
+  var msgStore, contextId;
+  if (g) {
+    // Avoid duplicate bubble if we're already receiving this file (same baseXferId)
+    var existing = g.msgs.findIndex(function(m) { return m.xferId === bubbleId; });
+    if (existing === -1) {
+      g.msgs.push({ type: meta.isVoiceNote ? 'voice-rx' : 'file-rx', xferId:bubbleId, name:meta.name, mime:meta.mime,
+                    size:meta.size, mine:false, time:Date.now(), done:false,
+                    senderName: data.senderName || data.from,
+                    durStr: meta.durStr||null, waveB64: meta.waveB64||null });
+    }
+    msgStore  = g.msgs;
+    contextId = groupId;
+    if (activePeer !== groupId) g.unread = (g.unread||0) + 1;
+  } else {
+    c.msgs.push({ type: meta.isVoiceNote ? 'voice-rx' : 'file-rx', xferId:bubbleId, name:meta.name, mime:meta.mime,
+                  size:meta.size, mine:false, time:Date.now(), done:false,
+                  durStr: meta.durStr||null, waveB64: meta.waveB64||null });
+    msgStore  = c.msgs;
+    contextId = cid;
+    if (activePeer !== cid) c.unread = (c.unread||0) + 1;
+  }
+  renderContacts();
+  if (activePeer === contextId) renderMsgs();
+
+  var pc = new RTCPeerConnection({ iceServers: FILE_ICE_SERVERS, bundlePolicy: "max-bundle", rtcpMuxPolicy: "require" });
+  var xfState = { pc:pc, dc:null, iceBuf:[], c:c, cid:cid, xferId:xferId,
+                  bubbleId:bubbleId, groupId:groupId, msgStore:msgStore, contextId:contextId,
+                  decKey:decKey, meta:meta, chunks:[], received:0 };
+  fileXfers[xferId] = xfState;
+
+  // Drain any ICE candidates that arrived while we were decrypting metadata
+  if (_fileIcePre[xferId]) {
+    xfState.iceBuf = xfState.iceBuf.concat(_fileIcePre[xferId]);
+    delete _fileIcePre[xferId];
+  }
+
+  pc.onicecandidate = function(e) {
+    if (e.candidate) sig.send(data.from, 'file-dc-ice', { xferId:xferId, c:e.candidate.toJSON() });
+  };
+  pc.onconnectionstatechange = function() {
+    if (pc.connectionState === 'failed') closeFileXfer(xferId);
+  };
+
+  pc.ondatachannel = function(evt) {
+    var dc = evt.channel;
+    dc.binaryType = 'arraybuffer';
+    xfState.dc = dc;
+
+    dc.onmessage = async function(evt) {
+      var msg;
+      try { msg = JSON.parse(evt.data); } catch(e) { return; }
+
+      if (msg.done) {
+        // Reassemble all chunks in order
+        var totalLen = xfState.chunks.reduce(function(s,ch) { return s + (ch ? ch.length : 0); }, 0);
+        var full = new Uint8Array(totalLen);
+        var off  = 0;
+        for (var i = 0; i < xfState.chunks.length; i++) {
+          if (xfState.chunks[i]) { full.set(xfState.chunks[i], off); off += xfState.chunks[i].length; }
+        }
+        var blob = new Blob([full], { type: meta.mime || 'application/octet-stream' });
+        var url  = URL.createObjectURL(blob);
+
+        // Find and update the bubble
+        for (var j = 0; j < xfState.msgStore.length; j++) {
+          if (xfState.msgStore[j].xferId === xfState.bubbleId) {
+            xfState.msgStore[j].done    = true;
+            xfState.msgStore[j].url     = url;
+            break;
+          }
+        }
+        if (activePeer === contextId) {
+          renderMsgs();
+          setTimeout(renderVoiceCanvases, 80);
+        }
+        var isVN = meta.isVoiceNote;
+        toast(isVN ? '🎙 Voice note received — tap ▶ to play' : '📎 ' + meta.name + ' received — tap ↓ Save');
+        setTimeout(function() { closeFileXfer(xferId); }, 2000);
+        return;
+      }
+
+      // Decrypt and store chunk
+      try {
+        var plain = await E2EE.decrypt(xfState.decKey, { iv:msg.iv, ct:msg.ct });
+        var bytes = Uint8Array.from(atob(plain), function(ch) { return ch.charCodeAt(0); });
+        xfState.chunks[msg.seq] = bytes;
+        xfState.received++;
+      } catch(e) { return; }
+
+      // Update progress bar (keyed to bubbleId so group bubbles update correctly)
+      var pct  = Math.round(xfState.received / (meta.total || 1) * 100);
+      var bar  = document.getElementById('fpb-' + xfState.bubbleId);
+      if (bar) bar.style.width = pct + '%';
+      var prog = document.getElementById('fpr-' + xfState.bubbleId);
+      if (prog) prog.style.display = 'block';
+    };
+
+    dc.onerror = function(e) { console.warn('rx dc error', e); };
+  };
+
+  // Complete the WebRTC handshake
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+    for (var i = 0; i < xfState.iceBuf.length; i++) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(xfState.iceBuf[i])); } catch(e) {}
+    }
+    xfState.iceBuf = [];
+    var answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    sig.send(data.from, 'file-dc-answer', {
+      xferId: xferId,
+      answer: { type: pc.localDescription.type, sdp: pc.localDescription.sdp }
+    });
+  } catch(e) {
+    toast('File accept error: ' + e.message);
+    closeFileXfer(xferId);
+  }
+}
+
+function showMediaPermissionHelp(errorName) {
+  var title = document.getElementById('mhelp-title');
+  var body  = document.getElementById('mhelp-body');
+  var isHTTPS = location.protocol === 'https:' || location.hostname === 'localhost';
+
+  if (errorName === 'insecure' || !isHTTPS) {
+    title.textContent = '🔒 HTTPS Required for Calls';
+    body.innerHTML =
+      '<p style="margin-bottom:10px">Your browser blocks camera and microphone access on <strong style="color:var(--red)">HTTP</strong> pages for security reasons.</p>' +
+      '<p style="margin-bottom:10px">VaultChat must be served over <strong style="color:var(--green)">HTTPS</strong> for calls to work on mobile.</p>' +
+      '<p style="color:var(--sub);font-size:12px"><strong>Quick fix options:</strong><br>' +
+      '• Host the HTML file on any HTTPS server (GitHub Pages, Netlify, etc.)<br>' +
+      '• Open it via <code style="color:var(--green)">https://</code> — not <code style="color:var(--red)">http://</code> or <code>file://</code></p>';
+
+  } else if (errorName === 'unsupported') {
+    title.textContent = '🌐 Browser Not Supported';
+    body.innerHTML =
+      '<p style="margin-bottom:10px">Your browser does not support camera/microphone access via WebRTC.</p>' +
+      '<p style="color:var(--sub);font-size:12px">Please use <strong>Safari</strong> on iOS or <strong>Chrome/Firefox</strong> on Android.</p>';
+
+  } else if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError') {
+    title.textContent = '🎙 Permission Denied';
+    var isIOS = _isIOS;
+    var isAndroid = /Android/.test(navigator.userAgent);
+    if (isIOS) {
+      body.innerHTML =
+        '<p style="margin-bottom:10px">Safari blocked access to your camera/microphone.</p>' +
+        '<p style="margin-bottom:8px"><strong style="color:var(--green)">To allow it:</strong></p>' +
+        '<ol style="padding-left:18px;color:var(--sub);font-size:12px;line-height:2">' +
+        '<li>Open the <strong>Settings</strong> app on your iPhone/iPad</li>' +
+        '<li>Scroll down and tap <strong>Safari</strong></li>' +
+        '<li>Under <em>Settings for Websites</em>, tap <strong>Camera</strong> and <strong>Microphone</strong></li>' +
+        '<li>Set both to <strong>Allow</strong></li>' +
+        '<li>Return here and try the call again</li>' +
+        '</ol>';
+    } else if (isAndroid) {
+      body.innerHTML =
+        '<p style="margin-bottom:10px">Chrome blocked access to your camera/microphone.</p>' +
+        '<p style="margin-bottom:8px"><strong style="color:var(--green)">To allow it:</strong></p>' +
+        '<ol style="padding-left:18px;color:var(--sub);font-size:12px;line-height:2">' +
+        '<li>Tap the <strong>🔒 lock icon</strong> in the browser address bar</li>' +
+        '<li>Tap <strong>Permissions</strong></li>' +
+        '<li>Enable <strong>Camera</strong> and <strong>Microphone</strong></li>' +
+        '<li>Reload the page and try again</li>' +
+        '</ol>';
+    } else {
+      body.innerHTML =
+        '<p style="margin-bottom:10px">Your browser denied camera/microphone access.</p>' +
+        '<p style="color:var(--sub);font-size:12px">Click the <strong>🔒 lock icon</strong> in the address bar, set Camera and Microphone to <strong>Allow</strong>, then try again.</p>';
+    }
+
+  } else if (errorName === 'NotFoundError') {
+    title.textContent = '📷 No Camera / Mic Found';
+    body.innerHTML =
+      '<p style="margin-bottom:10px">No camera or microphone was detected on your device.</p>' +
+      '<p style="color:var(--sub);font-size:12px">Check that your device has a working microphone. For audio-only calls, make sure mic access is permitted.</p>';
+
+  } else {
+    title.textContent = '📵 Call Setup Failed';
+    body.innerHTML =
+      '<p style="margin-bottom:10px">Could not access camera/microphone.</p>' +
+      '<p style="color:var(--sub);font-size:12px;background:var(--raised);padding:8px 10px;border-radius:7px;font-family:var(--mono)">' + (errorName || 'Unknown error') + '</p>' +
+      '<p style="color:var(--sub);font-size:12px;margin-top:10px">Make sure the page is served over HTTPS and that camera/mic permissions are allowed in your browser settings.</p>';
+  }
+
+  openSM('media-help-modal');
+}
+
+// ================================================================
+// CALLS  (WebRTC DTLS-SRTP)
+// ================================================================
+async function startCall(isVideo) {
+  if (!activePeer) return;
+  var c = contacts[activePeer];
+  if (!c) return;
+  if (!c.online || !c.sigId) return toast('Contact is not online — wait for them to come online');
+  if (call.active)           return toast('Already in a call');
+
+  // Clear any stale pending incoming call (user never tapped Accept/Decline,
+  // or call-end was lost on mobile). Without this, the outgoing call could
+  // succeed but the local state would be inconsistent.
+  if (call.pending && !call.pc) {
+    stopRing();
+    document.getElementById('inc-toast').classList.remove('active');
+    call.pending = null; call.pendingFrom = null; call.iceBuf = [];
+    call.callId = null; call.connected = false; call.answered = false;
+  }
+
+  if (!window.isSecureContext) { showMediaPermissionHelp('insecure'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { showMediaPermissionHelp('unsupported'); return; }
+
+  stopRing();
+  await releaseAudCtx();
+
+  call.isVideo      = isVideo;
+  call.peerId       = activePeer;
+  call.peerSigId    = c.sigId;
+  call.iceBuf       = [];
+  call.callId       = newCallId();
+  call.active       = true;
+
+  // Explicit constraints — bare {audio:true} can produce broken tracks on mobile
+  var audioC = { echoCancellation: true, autoGainControl: true, noiseSuppression: true };
+  var videoC = isVideo ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false;
+  try {
+    call.local = await navigator.mediaDevices.getUserMedia({ video: videoC, audio: audioC });
+  } catch(e) {
+    if (isVideo && (e.name === 'NotFoundError' || e.name === 'NotReadableError' || e.name === 'OverconstrainedError')) {
+      try {
+        call.local = await navigator.mediaDevices.getUserMedia({ video: false, audio: audioC });
+        call.isVideo = false;
+        isVideo = false;
+        toast('Camera unavailable — starting audio-only call');
+      } catch(e2) {
+        call.active = false;
+        showMediaPermissionHelp(e2.name);
+        return;
+      }
+    } else {
+      call.active = false;
+      showMediaPermissionHelp(e.name);
+      return;
+    }
+  }
+
+  // Verify audio track is actually live
+  var at = call.local.getAudioTracks();
+  if (at.length === 0 || at[0].readyState === 'ended') {
+    call.active = false;
+    call.local.getTracks().forEach(function(t) { t.stop(); }); call.local = null;
+    showMediaPermissionHelp('NotAllowedError');
+    return;
+  }
+
+  var lv = document.getElementById('lvid');
+  lv.setAttribute('autoplay', '');
+  lv.setAttribute('playsinline', '');
+  lv.muted = true;
+  lv.srcObject = call.local;
+  lv.play().catch(function(){});
+  showCallUI(c, isVideo, true);
+
+  try {
+    call.pc = buildPC(c.sigId);
+    call.local.getTracks().forEach(function(t) { call.pc.addTrack(t, call.local); });
+
+    var offer = await call.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: call.isVideo });
+    await call.pc.setLocalDescription(offer);
+
+    sig.send(c.sigId, 'call-offer', {
+      offer:   { type: call.pc.localDescription.type, sdp: call.pc.localDescription.sdp },
+      isVideo: isVideo,
+      callId:  call.callId
+    });
+    startRing();
+  } catch(e) {
+    toast('Call setup failed: ' + e.message);
+    endCall(true);
+  }
+}
+
+async function acceptCall() {
+  stopRing();
+  var c   = cBySig(call.pendingFrom);
+  var cid = cidBySig(call.pendingFrom);
+  if (!c) { toast('Caller not in contacts — add their public key first'); endCall(true); return; }
+
+  if (!window.isSecureContext) { showMediaPermissionHelp('insecure'); endCall(true); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { showMediaPermissionHelp('unsupported'); endCall(true); return; }
+
+  document.getElementById('inc-toast').classList.remove('active');
+
+  await releaseAudCtx();
+
+  call.peerId    = cid;
+  call.peerSigId = call.pendingFrom;
+  call.active    = true;
+
+  var wantVideo = call.isVideo;
+  var audioC = { echoCancellation: true, autoGainControl: true, noiseSuppression: true };
+  var videoC = wantVideo ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } } : false;
+  try {
+    call.local = await navigator.mediaDevices.getUserMedia({ video: videoC, audio: audioC });
+  } catch(e) {
+    if (wantVideo && (e.name === 'NotFoundError' || e.name === 'NotReadableError' || e.name === 'OverconstrainedError')) {
+      try {
+        call.local = await navigator.mediaDevices.getUserMedia({ video: false, audio: audioC });
+        call.isVideo = false;
+        wantVideo = false;
+        toast('Camera unavailable — accepting as audio-only');
+      } catch(e2) {
+        call.active = false;
+        showMediaPermissionHelp(e2.name);
+        endCall(true); return;
+      }
+    } else {
+      call.active = false;
+      showMediaPermissionHelp(e.name);
+      endCall(true); return;
+    }
+  }
+
+  // Verify audio track is live
+  var at = call.local.getAudioTracks();
+  if (at.length === 0 || at[0].readyState === 'ended') {
+    call.active = false;
+    call.local.getTracks().forEach(function(t) { t.stop(); }); call.local = null;
+    showMediaPermissionHelp('NotAllowedError');
+    endCall(true); return;
+  }
+
+  var lv = document.getElementById('lvid');
+  lv.setAttribute('autoplay', '');
+  lv.setAttribute('playsinline', '');
+  lv.muted = true;
+  lv.srcObject = call.local;
+  lv.play().catch(function(){});
+
+  showCallUI(c, call.isVideo, false);
+
+  try {
+    call.pc = buildPC(call.pendingFrom);
+    call.local.getTracks().forEach(function(t) { call.pc.addTrack(t, call.local); });
+
+    await call.pc.setRemoteDescription(new RTCSessionDescription(call.pending));
+
+    // Drain ALL buffered ICE candidates (now includes those received before Accept!)
+    for (var i = 0; i < call.iceBuf.length; i++) {
+      try { await call.pc.addIceCandidate(new RTCIceCandidate(call.iceBuf[i])); } catch(e) {}
+    }
+    call.iceBuf = [];
+
+    var answer = await call.pc.createAnswer();
+    await call.pc.setLocalDescription(answer);
+
+    sig.send(call.pendingFrom, 'call-answer', {
+      answer: { type: call.pc.localDescription.type, sdp: call.pc.localDescription.sdp },
+      callId: call.callId
+    });
+    setTimeout(function() {
+      if (call.active && call.pc &&
+          call.pc.iceConnectionState !== 'connected' &&
+          call.pc.iceConnectionState !== 'completed') {
+        toast('📵 Call could not connect — the other user may have dropped');
+        endCall(true);
+      }
+    }, 20000);
+  } catch(e) {
+    toast('Accept failed: ' + e.message);
+    endCall(true);
+    return;
+  }
+
+  call.pending = null;
+}
+
+function buildPC(peerSigId) {
+  var pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      {
+        urls: 'turn:global.relay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:global.relay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:global.relay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turns:global.relay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ],
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
+  });
+
+  pc.onicecandidate = function(e) {
+    if (e.candidate) sig.send(peerSigId, 'call-ice', { c: e.candidate.toJSON(), callId: call.callId });
+  };
+
+  // Helper: play() with touch-retry if autoplay blocked
+  function safePlay(el) {
+    if (!el || !el.srcObject) return;
+    var p = el.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(function() {
+        function retry() {
+          if (el.srcObject) el.play().catch(function() {});
+          document.removeEventListener('touchstart', retry, true);
+          document.removeEventListener('click', retry, true);
+        }
+        document.addEventListener('touchstart', retry, { once: true, capture: true });
+        document.addEventListener('click', retry, { once: true, capture: true });
+      });
+    }
+  }
+
+  // Helper: wire remote stream to BOTH video + audio elements
+  function wireRemote(stream) {
+    var rv  = document.getElementById('rvid');
+    var rau = document.getElementById('raud');
+    if (rv)  { rv.srcObject = stream;  rv.volume = 1.0;  safePlay(rv); }
+    if (rau) { rau.srcObject = stream; rau.volume = 1.0; safePlay(rau); }
+  }
+
+  pc.ontrack = function(e) {
+    var rv = document.getElementById('rvid');
+    var track = e.track;
+
+    if (e.streams && e.streams[0]) {
+      call.remoteStream = e.streams[0];
+    } else {
+      if (!call.remoteStream) call.remoteStream = new MediaStream();
+      if (!call.remoteStream.getTracks().some(function(t) { return t.id === track.id; })) {
+        call.remoteStream.addTrack(track);
+      }
+    }
+
+    wireRemote(call.remoteStream);
+
+    if (track.kind === 'video') {
+      rv.style.display = 'block';
+      rv.style.position = '';
+      rv.style.left = '';
+    }
+
+    if (!call.connected) {
+      call.connected = true;
+      document.getElementById('cwait').style.display = 'none';
+      if (!call.isVideo) document.getElementById('abars').style.display = 'flex';
+      // Delay connected tone — immediate AudioContext steals iOS audio session
+      setTimeout(function() { playConnected(); }, 800);
+      startTimer();
+    }
+  };
+
+  pc.oniceconnectionstatechange = function() {
+    var s = pc.iceConnectionState;
+    var labels = { checking:'🔄 Connecting…', connected:'🔒 Connected', completed:'🔒 Secured',
+                   failed:'❌ ICE failed', disconnected:'⚠ Disconnected', closed:'Closed' };
+    document.getElementById('wst').textContent = labels[s] || s;
+
+    // When ICE connects — force-play and kill any lingering AudioContext from ringing
+    if (s === 'connected' || s === 'completed') {
+      if (_audCtx) { try { _audCtx.close(); } catch(e) {} _audCtx = null; }
+      if (call.remoteStream) wireRemote(call.remoteStream);
+    }
+  };
+
+  pc.onconnectionstatechange = function() {
+    var s = pc.connectionState;
+    if (s === 'connected') {
+      document.getElementById('wst').textContent = '🔒 Encrypted & Connected';
+      if (call.remoteStream) wireRemote(call.remoteStream);
+    }
+    if (s === 'failed' || s === 'disconnected') endCall();
+  };
+
+  return pc;
+}
+
+function showCallUI(c, isVideo, isCaller) {
+  document.getElementById('call-ov').classList.add('active');
+  document.getElementById('call-ttl').textContent = (isVideo ? '📹 ' : '📞 ') + c.name;
+  document.getElementById('cwait').style.display  = 'flex';
+  document.getElementById('wav').textContent      = c.name.split(' ').map(function(w) { return w[0]; }).join('').toUpperCase().slice(0,2);
+  document.getElementById('wname').textContent    = c.name;
+  document.getElementById('wst').textContent      = isCaller ? 'Ringing…' : 'Connecting…';
+  var rvEl = document.getElementById('rvid');
+  var lvEl = document.getElementById('lvid');
+  // Reassert attributes mobile browsers need set via JS
+  rvEl.setAttribute('autoplay', '');
+  rvEl.setAttribute('playsinline', '');
+  rvEl.volume = 1.0;
+  // Keep rvid display:block always — hidden on audio calls via position off-screen.
+  // display:none and opacity:0 can suspend media on Android/iOS.
+  rvEl.style.display  = 'block';
+  rvEl.style.position = isVideo ? '' : 'fixed';
+  rvEl.style.left     = isVideo ? '' : '-9999px';
+  rvEl.style.opacity  = '1';
+  rvEl.style.pointerEvents = isVideo ? '' : 'none';
+  lvEl.style.display  = isVideo ? 'block' : 'none';
+}
+
+function showIncoming(c, isVideo) {
+  document.getElementById('inc-av').textContent   = c.name.split(' ').map(function(w) { return w[0]; }).join('').toUpperCase().slice(0,2);
+  document.getElementById('inc-name').textContent = c.name;
+  document.getElementById('inc-type').textContent = (isVideo ? '📹 Video' : '📞 Voice') + ' Call — DTLS-SRTP';
+  document.getElementById('inc-toast').classList.add('active');
+}
+
+function declineCall() {
+  stopRing();
+  if (_audCtx) { try { _audCtx.close(); } catch(e) {} _audCtx = null; }
+  document.getElementById('inc-toast').classList.remove('active');
+  if (call.pendingFrom) sig.send(call.pendingFrom, 'call-decline', { callId: call.callId });
+  call.pending = null; call.pendingFrom = null; call.iceBuf = [];
+}
+
+function endCall(silent) {
+  stopRing();
+  if (_audCtx) { try { _audCtx.close(); } catch(e) {} _audCtx = null; }
+  // Always notify peer if we have a PC (offer was sent) — even if called silently.
+  var shouldNotify = !silent || (call.pc && call.peerSigId);
+  if (shouldNotify && call.peerSigId) {
+    sig.send(call.peerSigId, 'call-end', { callId: call.callId });
+  }
+  if (call.local) { call.local.getTracks().forEach(function(t) { t.stop(); }); call.local = null; }
+  if (call.pc)    { call.pc.close(); call.pc = null; }
+  if (call.timer) { clearInterval(call.timer); call.timer = null; call.secs = 0; }
+  document.getElementById('call-ov').classList.remove('active');
+  document.getElementById('inc-toast').classList.remove('active');
+  var rv = document.getElementById('rvid');
+  rv.srcObject = null;
+  rv.pause();
+  var rau = document.getElementById('raud');
+  if (rau) { rau.pause(); rau.srcObject = null; }
+  document.getElementById('lvid').srcObject = null;
+  var rvEl2 = document.getElementById('rvid');
+  rvEl2.style.opacity      = '1';
+  rvEl2.style.pointerEvents = '';
+  rvEl2.style.position     = '';
+  rvEl2.style.left         = '';
+  call.remoteStream = null;
+  document.getElementById('ctmr').textContent = '00:00';
+  document.getElementById('abars').style.display = 'none';
+  document.getElementById('lvid').style.display  = 'block';
+  document.getElementById('rvid').style.display  = 'block';
+  call.active = false; call.peerId = null; call.peerSigId = null;
+  call.pending = null; call.pendingFrom = null; call.muted = false; call.camOff = false; call.iceBuf = [];
+  call.callId = null; call.connected = false; call.answered = false;
+  // Stop screen share streams silently
+  if (call.screenStream) { call.screenStream.getTracks().forEach(function(t) { t.stop(); }); call.screenStream = null; }
+  call.screenSharing = false;
+  document.getElementById('screen-opts').classList.remove('show');
+  var bm = document.getElementById('btn-mute');   bm.classList.remove('off'); bm.textContent = '🎤';
+  var bc = document.getElementById('btn-cam');    bc.classList.remove('off'); bc.textContent = '📷';
+  var bs = document.getElementById('btn-screen'); if (bs) { bs.classList.remove('screen-on'); bs.textContent = '🖥'; }
+  var sb = document.getElementById('screen-banner'); if (sb) sb.classList.remove('on');
+}
+
+function startTimer() {
+  if (call.timer) return;
+  call.timer = setInterval(function() {
+    call.secs++;
+    var m = String(Math.floor(call.secs/60)).padStart(2,'0');
+    var s = String(call.secs%60).padStart(2,'0');
+    document.getElementById('ctmr').textContent = m + ':' + s;
+  }, 1000);
+}
+function toggleMute() {
+  if (!call.local) return;
+  call.muted = !call.muted;
+  call.local.getAudioTracks().forEach(function(t) { t.enabled = !call.muted; });
+  var b = document.getElementById('btn-mute');
+  b.classList.toggle('off', call.muted);
+  b.textContent = call.muted ? '🔇' : '🎤';
+}
+function toggleCam() {
+  if (!call.local) return;
+  call.camOff = !call.camOff;
+  call.local.getVideoTracks().forEach(function(t) { t.enabled = !call.camOff; });
+  var b = document.getElementById('btn-cam');
+  b.classList.toggle('off', call.camOff);
+  b.textContent = call.camOff ? '🚫' : '📷';
+}
+
+function toggleScreen() {
+  if (!call.active || !call.pc) return toast('No active call');
+
+  // If already sharing — stop immediately
+  if (call.screenSharing) {
+    stopScreenShare();
+    return;
+  }
+
+  // Check support before showing options
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    return toast('Screen sharing not supported in this browser');
+  }
+
+  // Show the options popup
+  document.getElementById('screen-opts').classList.add('show');
+}
+
+function closeScreenOpts() {
+  document.getElementById('screen-opts').classList.remove('show');
+}
+
+async function startScreenShare() {
+  closeScreenOpts();
+
+  var wantAudio  = document.getElementById('sopt-audio').checked;
+  var fps        = parseInt(document.getElementById('sopt-fps').value, 10) || 15;
+
+  var screenStream;
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { cursor: 'always', frameRate: { ideal: fps, max: fps } },
+      // Request system audio if user opted in.
+      // Chrome supports this on Windows/ChromeOS; macOS/Linux may ignore it.
+      // The browser will show a checkbox in the picker — we just request it.
+      audio: wantAudio ? { echoCancellation: false, noiseSuppression: false, sampleRate: 44100 } : false
+    });
+  } catch(e) {
+    if (e.name !== 'NotAllowedError') toast('Screen share failed: ' + e.message);
+    return;
+  }
+
+  call.screenSharing = true;
+  call.screenStream  = screenStream;
+
+  // ── Wire up VIDEO track ──
+  var screenVideoTrack = screenStream.getVideoTracks()[0];
+  var senders   = call.pc.getSenders();
+  var vidSender = senders.find(function(s) { return s.track && s.track.kind === 'video'; });
+
+  if (vidSender) {
+    vidSender.replaceTrack(screenVideoTrack)
+      .catch(function(e) { console.warn('replaceTrack screen video:', e); });
+  } else {
+    // Voice call — add video track for the first time
+    call.pc.addTrack(screenVideoTrack, screenStream);
+  }
+
+  // ── Wire up AUDIO track (system audio) if the browser captured it ──
+  // IMPORTANT: We cannot addTrack() mid-call — that requires full SDP renegotiation.
+  // Instead we use Web Audio to MIX screen audio + mic into a single MediaStreamTrack,
+  // then replaceTrack() on the existing audio sender. No renegotiation needed.
+  var screenAudioTrack = screenStream.getAudioTracks()[0];
+  if (screenAudioTrack) {
+    try {
+      var mixCtx  = new (window.AudioContext || window.webkitAudioContext)();
+      var dest    = mixCtx.createMediaStreamDestination();
+
+      // Mic source (may be absent on pure audio-off calls)
+      if (call.local && call.local.getAudioTracks().length) {
+        var micSrc = mixCtx.createMediaStreamSource(call.local);
+        micSrc.connect(dest);
+      }
+
+      // Screen audio source
+      var scrSrc = mixCtx.createMediaStreamSource(new MediaStream([screenAudioTrack]));
+      scrSrc.connect(dest);
+
+      // Replace the existing mic sender with the mixed track
+      var mixedTrack = dest.stream.getAudioTracks()[0];
+      var audSender  = call.pc.getSenders().find(function(s) {
+        return s.track && s.track.kind === 'audio';
+      });
+      if (audSender) {
+        audSender.replaceTrack(mixedTrack)
+          .catch(function(e) { console.warn('replaceTrack mixed audio:', e); });
+      }
+
+      // Store so stopScreenShare() can tear it down
+      call.screenAudioCtx   = mixCtx;
+      call.screenMixedTrack = mixedTrack;
+
+      toast('Sharing screen + computer audio — encrypted');
+    } catch(e) {
+      console.warn('Screen audio mix failed:', e);
+      toast('Screen shared (audio mix failed: ' + e.message + ')');
+    }
+  } else {
+    if (wantAudio) {
+      toast('Screen shared — OS did not grant audio capture (requires Windows + Chrome, or a virtual audio device on Mac)');
+    } else {
+      toast('Sharing screen — encrypted end-to-end');
+    }
+  }
+
+  // Local preview: show the screen capture in the pip corner
+  var lvid = document.getElementById('lvid');
+  lvid.srcObject = screenStream;
+  lvid.style.display = 'block';
+
+  // Update button & banner
+  var btn = document.getElementById('btn-screen');
+  btn.classList.add('screen-on');
+  btn.textContent = '🛑';
+  btn.title = 'Stop Sharing';
+  var banner = document.getElementById('screen-banner');
+  banner.innerHTML = '<div class="sdot"></div>🖥 Sharing screen' + (screenAudioTrack ? ' + audio' : '') + ' — encrypted';
+  banner.classList.add('on');
+
+  // Signal peer
+  if (call.peerSigId) sig.send(call.peerSigId, 'screen-share', {
+    active: true, name: me.name, hasAudio: !!screenAudioTrack
+  });
+
+  // Auto-stop when user hits the browser "Stop sharing" button
+  screenVideoTrack.onended = function() {
+    if (call.screenSharing) stopScreenShare();
+  };
+}
+
+function stopScreenShare() {
+  call.screenSharing = false;
+
+  if (call.screenStream) {
+    call.screenStream.getTracks().forEach(function(t) { t.stop(); });
+    call.screenStream = null;
+  }
+
+  // ── Restore original mic audio track (undo the mixed track) ──
+  if (call.screenAudioCtx) {
+    call.screenAudioCtx.close().catch(function(){});
+    call.screenAudioCtx   = null;
+    call.screenMixedTrack = null;
+    // Put the real mic track back on the audio sender
+    var origMicTrack = call.local ? call.local.getAudioTracks()[0] : null;
+    var audSender = call.pc.getSenders().find(function(s) {
+      return s.track && s.track.kind === 'audio';
+    });
+    if (audSender && origMicTrack) {
+      audSender.replaceTrack(origMicTrack)
+        .catch(function(e) { console.warn('replaceTrack restore mic:', e); });
+    }
+  }
+
+  // Restore camera video track
+  var camTrack  = call.local ? call.local.getVideoTracks()[0] : null;
+  var senders   = call.pc.getSenders();
+  var vidSender = senders.find(function(s) { return s.track && s.track.kind === 'video'; });
+  if (vidSender) {
+    vidSender.replaceTrack(camTrack || null)
+      .catch(function(e) { console.warn('replaceTrack restore cam:', e); });
+    if (camTrack) camTrack.enabled = !call.camOff;
+  }
+
+  // Restore local pip to camera
+  var lvid = document.getElementById('lvid');
+  if (call.local) { lvid.srcObject = call.local; lvid.play().catch(function(){}); }
+  lvid.style.display = call.isVideo ? 'block' : 'none';
+
+  // Reset button & banner
+  var btn = document.getElementById('btn-screen');
+  btn.classList.remove('screen-on');
+  btn.textContent = '🖥';
+  btn.title = 'Share Screen';
+  document.getElementById('screen-banner').classList.remove('on');
+
+  if (call.peerSigId) sig.send(call.peerSigId, 'screen-share', { active: false, name: me.name });
+  toast('Screen share stopped');
+}
+
+// ================================================================
+// SCRAMBLER
+// ================================================================
+function xorPass(str, pass) {
+  if (!pass) pass = 'VaultChat-Default';
+  var b = Array.from(atob(str), function(c) { return c.charCodeAt(0); });
+  var k = Array.from(pass,     function(c) { return c.charCodeAt(0); });
+  return btoa(String.fromCharCode.apply(null, b.map(function(x,i) { return x ^ k[i % k.length]; })));
+}
+function doScramble() {
+  var inp = document.getElementById('si').value.trim();
+  var p   = document.getElementById('sp').value.trim();
+  if (!inp) return toast('Enter input');
+  try {
+    document.getElementById('so').value = xorPass(inp, p).split('').reverse().join('');
+    toast('Scrambled — copy and send to contact');
+  } catch(e) { toast('Invalid base64 key'); }
+}
+function doDescramble() {
+  var inp = document.getElementById('si').value.trim();
+  var p   = document.getElementById('sp').value.trim();
+  if (!inp) return toast('Enter scrambled key');
+  try {
+    document.getElementById('so').value = xorPass(inp.split('').reverse().join(''), p);
+    toast('Descrambled');
+  } catch(e) { toast('Check passphrase/input'); }
+}
+function copyScrOut() {
+  var ta = document.getElementById('so');
+  if (ta.value === '—' || ta.value === '') return toast('Nothing to copy');
+  // Fully synchronous — no async/await so iOS keeps the gesture context
+  ta.focus();
+  ta.select();
+  try { ta.setSelectionRange(0, 99999); } catch(e) {}
+  var copied = false;
+  try { copied = document.execCommand('copy'); } catch(e) {}
+  if (copied) {
+    toast('Copied to clipboard!');
+  } else {
+    toast('Key selected — tap Copy from the menu');
+  }
+}
+function useAsKey() {
+  var t = document.getElementById('so').value;
+  if (t === '—' || t === '') return toast('Descramble a key first');
+  closeSM('scram-modal');
+  document.getElementById('add-key').value = t;
+  openSM('add-modal');
+}
+function clearScrOut() {
+  document.getElementById('so').value = '—';
+  toast('Output cleared');
+}
+function clearScrambler() {
+  document.getElementById('si').value = '';
+  document.getElementById('sp').value = '';
+  document.getElementById('so').value = '—';
+  toast('Cleared');
+}
+
+// ================================================================
+// SETTINGS
+// ================================================================
+function openSettings() {
+  document.getElementById('s-name').value        = me.name || '';
+  document.getElementById('s-user').textContent  = '@' + (me.id || '—');
+  document.getElementById('s-fp').textContent    = me.fp  || '—';
+  document.getElementById('s-fs').textContent    = fsz + 'px';
+  openSM('settings-modal');
+}
+function saveSettings() {
+  var n = document.getElementById('s-name').value.trim();
+  if (n && n !== me.name) {
+    me.name = n;
+    document.getElementById('my-name').textContent = n;
+    document.getElementById('my-av').textContent   = n[0].toUpperCase();
+    toast('Name updated');
+  }
+  closeSM('settings-modal');
+}
+function toggleNotifs(on) {
+  if (on && Notification.permission !== 'granted') {
+    Notification.requestPermission().then(function(p) {
+      if (p !== 'granted') { document.getElementById('s-notif').checked = false; toast('Permission denied'); }
+      else toast('Notifications enabled');
+    });
+  }
+}
+function setAccent(c, g, id) {
+  document.documentElement.style.setProperty('--green', c);
+  document.documentElement.style.setProperty('--gglow', g);
+  document.documentElement.style.setProperty('--gdim',  c + 'bb');
+  document.querySelectorAll('.sw').forEach(function(s) { s.classList.remove('active'); });
+  var el = document.getElementById(id); if (el) el.classList.add('active');
+  toast('Accent updated');
+}
+function chFS(d) {
+  fsz = Math.max(11, Math.min(17, fsz + d));
+  document.body.style.fontSize = fsz + 'px';
+  document.getElementById('s-fs').textContent = fsz + 'px';
+}
+function clearHist() {
+  if (!confirm('Clear all messages?')) return;
+  Object.values(contacts).forEach(function(c) { c.msgs = []; c.unread = 0; });
+  renderContacts();
+  if (activePeer) renderMsgs();
+  toast('Cleared');
+  closeSM('settings-modal');
+}
+function nukeId() {
+  if (!confirm('Delete identity and reload?')) return;
+  if (sig) { sig.bcast('offline', {}); sig.destroy(); }
+  location.reload();
+}
+
+// ================================================================
+// UTILITIES
+// ================================================================
+// ================================================================
+// KEY SHARE MODAL
+// Strategy: textarea readonly = native iOS/Android "Select All > Copy"
+// + Clipboard API on desktop/HTTPS
+// + Web Share API as the most reliable mobile path
+// ================================================================
+function openKeyShareModal() {
+  if (!me.pubB64) return toast('No key yet — create identity first');
+  var ta = document.getElementById('key-display-text');
+  ta.value = me.pubB64;
+  var shareBtn = document.getElementById('key-share-btn');
+  shareBtn.style.display = navigator.share ? 'block' : 'none';
+  openSM('key-share-modal');
+  setTimeout(function() { ta.focus(); ta.select(); try { ta.setSelectionRange(0, 99999); } catch(e){} }, 200);
+}
+
+// The Copy button handler — must be 100% synchronous, no async/await/promises.
+// iOS Safari kills the clipboard write permission the instant you go async.
+function keyModalCopy() {
+  var ta  = document.getElementById('key-display-text');
+  var btn = document.getElementById('key-copy-btn');
+
+  // Step 1: make sure the textarea has the key value
+  ta.value = me.pubB64 || '';
+  if (!ta.value) return toast('No key yet');
+
+  // Step 2: focus + select ALL — must happen before execCommand
+  ta.focus();
+  ta.select();
+  try { ta.setSelectionRange(0, 99999); } catch(e) {}
+
+  // Step 3: synchronous execCommand — this is what actually works on iOS/Android
+  var copied = false;
+  try { copied = document.execCommand('copy'); } catch(e) {}
+
+  if (copied) {
+    // Success path
+    btn.textContent = '✓ Copied!';
+    btn.style.background = '#00c87a';
+    btn.style.color = '#000';
+    setTimeout(function() {
+      btn.textContent = '📋 Copy Key';
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 2500);
+    toast('Key copied to clipboard!');
+  } else {
+    // execCommand returned false (very old or locked-down browser)
+    // The textarea is already selected — tell user to use system copy
+    toast('Key selected — now tap Copy from the menu above it');
+  }
+}
+
+function keyModalShare() {
+  if (!navigator.share || !me.pubB64) return;
+  navigator.share({ title: 'My VaultChat Public Key', text: me.pubB64 })
+    .then(function() { toast('Key shared!'); })
+    .catch(function(e) { if (e.name !== 'AbortError') toast('Share cancelled'); });
+}
+
+async function copyMyKey() { openKeyShareModal(); }
+function toggleKP() { document.getElementById('kpanel').classList.toggle('open'); }
+function openSM(id)  { document.getElementById(id).classList.add('active'); }
+function closeSM(id) { document.getElementById(id).classList.remove('active'); }
+function esc(t) {
+  return String(t).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];
+  });
+}
+function fmt(ts) {
+  var d = new Date(ts), n = new Date();
+  return d.toDateString() === n.toDateString()
+    ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+    : d.toLocaleDateString([], {month:'short', day:'numeric'});
+}
+function autoR(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 108) + 'px'; }
+function toast(msg) {
+  var a = document.getElementById('ta');
+  var t = document.createElement('div');
+  t.className   = 'toast';
+  t.textContent = msg;
+  a.appendChild(t);
+  setTimeout(function() { t.remove(); }, 3200);
+}
+
+// ── Run crypto + HTTPS check on page load ──
+function checkCryptoSupport() {
+  var banner = document.getElementById('crypto-err');
+  var btn    = document.getElementById('go-btn');
+  if (!banner) return;
+
+  // Check 1: HTTPS / secure context
+  if (!window.isSecureContext) {
+    banner.innerHTML =
+      '<strong>🔒 HTTPS Required</strong><br>' +
+      'Safari on iPad disables encryption (Web Crypto API) on plain HTTP pages.<br>' +
+      'Open VaultChat via an <strong>https://</strong> URL — not http:// or file://.';
+    banner.style.display = 'block';
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.4'; }
+    return;
+  }
+
+  // Check 2: crypto.subtle available
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    banner.innerHTML =
+      '<strong>🔒 Encryption Not Available</strong><br>' +
+      'Your browser does not support Web Crypto API. On iPad, please use <strong>Safari 15+</strong> ' +
+      'and make sure the page is served over <strong>https://</strong>.';
+    banner.style.display = 'block';
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.4'; }
+    return;
+  }
+
+  // Check 3: mqtt library loaded?
+  if (typeof mqtt === 'undefined') {
+    banner.innerHTML =
+      '<strong>⚠️ Network library failed to load</strong><br>' +
+      'The MQTT library could not load — this may be a network issue or content blocker. ' +
+      'Try disabling any ad-blocker or content blocker for this page, then reload.';
+    banner.style.display = 'block';
+    // Don't disable button — crypto still works, warn only
+    return;
+  }
+
+  // All good
+  banner.style.display = 'none';
+  if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  checkCryptoSupport();
+
+  // ── Extra touchend listener for iOS (onclick already handles desktop + click) ──
+  var goBtn = document.getElementById('go-btn');
+  if (goBtn) {
+    goBtn.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      doCreateIdentity();
+    });
+  }
+
+  document.querySelectorAll('.ov').forEach(function(el) {
+    el.addEventListener('click', function(e) {
+      if (e.target === el) el.classList.remove('active');
+    });
+  });
+
+  // ── Event delegation for contact list (iPad Safari fix) ──
+  // onclick on dynamically rendered <div> elements is unreliable on iPad Safari.
+  // Event delegation on the parent catches clicks/taps regardless of re-renders.
+  var clist = document.getElementById('clist');
+  if (clist) {
+    clist.addEventListener('click', function(e) {
+      var ci = e.target.closest('.ci[data-cid]');
+      if (ci && ci.dataset.cid) openChat(ci.dataset.cid);
+    });
+    // Touchend fallback for iPad — sometimes click doesn't fire on divs
+    clist.addEventListener('touchend', function(e) {
+      var ci = e.target.closest('.ci[data-cid]');
+      if (ci && ci.dataset.cid) {
+        e.preventDefault();
+        openChat(ci.dataset.cid);
+      }
+    });
+  }
+
+  // ── Touch handlers for call Accept/Decline on iPad ──
+  var accBtn = document.querySelector('.btn-acc');
+  if (accBtn) accBtn.addEventListener('touchend', function(e) { e.preventDefault(); acceptCall(); });
+  var decBtn = document.querySelector('.btn-dec');
+  if (decBtn) decBtn.addEventListener('touchend', function(e) { e.preventDefault(); declineCall(); });
+});
+
+function doCreateIdentity() {
+  var banner = document.getElementById('crypto-err');
+  // Clear previous errors
+  if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
+  // Call the async function and catch any rejection
+  try {
+    var p = createIdentity();
+    if (p && typeof p.catch === 'function') {
+      p.catch(function(e) {
+        if (banner) {
+          banner.innerHTML = '<strong>⚠️ Error:</strong> ' + (e && e.message ? e.message : String(e));
+          banner.style.display = 'block';
+        }
+      });
+    }
+  } catch(e) {
+    if (banner) {
+      banner.innerHTML = '<strong>⚠️ Error:</strong> ' + (e && e.message ? e.message : String(e));
+      banner.style.display = 'block';
+    }
+  }
+}
+
+window.addEventListener('beforeunload', function() {
+  // If in an active call or ringing, notify the peer so they don't get stuck
+  if (sig && call.peerSigId && (call.active || call.pending)) {
+    sig.send(call.peerSigId, 'call-end', { callId: call.callId });
+  }
+  // If ringing out to someone (caller side), also notify via pendingFrom
+  if (sig && call.pendingFrom && call.pending) {
+    sig.send(call.pendingFrom, 'call-end', { callId: call.callId });
+  }
+  if (sig) sig.bcast('offline', {});
+});
+</script>
+</body>
+</html>
